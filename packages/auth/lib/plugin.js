@@ -6,6 +6,7 @@
 // Absent credentials are the core's 401; present but wrong ones are ours. A route that asks
 // for a scheme this plugin cannot verify is refused, never waved through.
 import { Buffer } from "node:buffer";
+import { randomBytes } from "node:crypto";
 import { HttpProblem, plugin, reply, t } from "@vxnsin/inkan";
 import { AuthError } from "./errors.js";
 import { isObject, secureUrl } from "./http.js";
@@ -15,7 +16,7 @@ import { buildAuthorizeUrl, exchangeCode, github, google, pkcePair, randomState 
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
 import { keyLock, memoryStore } from "./store.js";
 import { hashToken, randomToken, safeEqual } from "./tokens.js";
-import { generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
+import { base32Encode, generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
@@ -200,10 +201,14 @@ function configure(o) {
   if (o.totp) {
     const z = o.totp === true ? {} : o.totp;
     if (!fn(users.setTotpSecret)) throw new TypeError("auth: totp needs users.setTotpSecret(id, secret) to save a confirmed secret");
+    if (!fn(users.setRecoveryCodes)) throw new TypeError("auth: totp needs users.setRecoveryCodes(id, hashes) to keep the recovery codes");
+    if (!keys) throw new TypeError("auth: totp needs a secret (a secret waiting for its confirmation is kept sealed)");
     c.totp = {
       issuer: (z.issuer ?? "inkan").replace(/:/g, ""),
       window: z.window ?? 1,
       account: z.account ?? ((u) => String(u.email ?? u.login ?? u.name ?? u.id)),
+      // setup and confirm without the password only this soon after a login
+      reauth: seconds(z.reauth ?? 300, "totp.reauth"),
     };
   }
 
@@ -346,11 +351,11 @@ function install(app, c) {
           return true;
         });
   const ttlUntil = (ms) => Math.max(1, Math.ceil((ms - clock()) / 1000));
-  /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined, cookie: boolean }>} */
+  /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined, cookie: boolean, authTime: number | undefined }>} */
   const states = new WeakMap();
   const stateOf = (ctx) => {
     let s = states.get(ctx);
-    if (!s) states.set(ctx, (s = { user: undefined, method: undefined, sid: undefined, cookie: false }));
+    if (!s) states.set(ctx, (s = { user: undefined, method: undefined, sid: undefined, cookie: false, authTime: undefined }));
     return s;
   };
   let dummy;
@@ -389,7 +394,7 @@ function install(app, c) {
       sameSite: session.sameSite,
       secure: secureFor(ctx),
     });
-    Object.assign(st, { user, method: "session", sid: id, cookie: true });
+    Object.assign(st, { user, method: "session", sid: id, cookie: true, authTime: now });
     ctx.user = user;
   }
 
@@ -400,7 +405,7 @@ function install(app, c) {
       if (id) await session.store.delete(sessionKey(id));
       if (ctx.cookies[session.cookie] !== undefined) ctx.clearCookie(session.cookie, { path: "/", domain: session.domain });
     }
-    Object.assign(st, { user: undefined, method: undefined, sid: undefined, cookie: false });
+    Object.assign(st, { user: undefined, method: undefined, sid: undefined, cookie: false, authTime: undefined });
     ctx.user = undefined;
   }
 
@@ -429,7 +434,7 @@ function install(app, c) {
       await session.store.delete(sessionKey(id));
       throw invalid("the session's user is gone");
     }
-    return { user, method: "session", sid: id };
+    return { user, method: "session", sid: id, authTime: typeof rec.iat === "number" ? rec.iat : undefined };
   }
 
   async function fromBearer(ctx, token) {
@@ -442,24 +447,27 @@ function install(app, c) {
     const kid = isObject(header) && typeof header.kid === "string" ? header.kid : undefined;
     const own = c.issue && kid !== undefined ? keys.find((k) => k.kid === kid) : undefined;
     let user;
+    let payload;
     if (own) {
-      const { payload } = await verifyJwt(token, {
+      ({ payload } = await verifyJwt(token, {
         secret: own.jwt,
         algorithms: ["HS256"],
         issuer: c.issue.issuer,
         audience: c.issue.audience,
         now: clock(),
-      });
+      }));
       if (payload.use !== "access") throw invalid("not an access token");
       user = await users.byId(payload.uid ?? payload.sub);
     } else if (c.jwt?.verify) {
-      const { payload } = await verifyJwt(token, { ...c.jwt.verify, now: clock() });
+      ({ payload } = await verifyJwt(token, { ...c.jwt.verify, now: clock() }));
       user = c.jwt.user ? await c.jwt.user(payload, ctx) : await users.byId(payload.sub);
     } else {
       throw invalid("no key for this token");
     }
     if (!user) throw invalid("the token's user is gone");
-    return { user, method: "jwt" };
+    // when the user logged in, as OpenID's auth_time says it (own tokens carry it too)
+    const authTime = typeof payload.auth_time === "number" && Number.isFinite(payload.auth_time) ? payload.auth_time * 1000 : undefined;
+    return { user, method: "jwt", authTime };
   }
 
   async function fromBasic(ctx, encoded) {
@@ -688,6 +696,56 @@ function install(app, c) {
     });
   }
 
+  // Recovery codes: ten per confirmation, 80 random bits each, shown once and kept by the user
+  // source only as hashes. Each works once in place of a TOTP code.
+  const RECOVERY = /^[a-z2-7]{16}$/;
+  const normalRecovery = (code) => (typeof code === "string" ? code.toLowerCase().replace(/[\s-]/g, "") : "");
+  const recoveryHash = (code) => hashToken("inkan-auth/recovery:" + code);
+  const newRecoveryCodes = () =>
+    Array.from({ length: 10 }, () => /** @type {string[]} */ (base32Encode(randomBytes(10)).toLowerCase().match(/.{4}/g)).join("-"));
+
+  /** Uses a recovery code once: claimed in the store (add), then dropped from the user's list. */
+  async function useRecoveryCode(user, code) {
+    const norm = normalRecovery(code);
+    if (!RECOVERY.test(norm) || !fn(users.setRecoveryCodes)) return false;
+    const list = Array.isArray(user.recoveryCodes) ? user.recoveryCodes.filter((h) => typeof h === "string") : [];
+    const h = recoveryHash(norm);
+    if (!list.some((x) => safeEqual(x, h))) return false;
+    if (!(await add(store, "rc:" + hashToken(`${user.id}\n${h}`), true, 86400))) return false;
+    await users.setRecoveryCodes(user.id, list.filter((x) => x !== h));
+    return true;
+  }
+
+  /** The second factor: the current TOTP code, or a recovery code. */
+  async function secondFactor(user, code) {
+    if (typeof code !== "string" || !code) return false;
+    if ((await useTotpCode(user, user.totpSecret, code)) !== null) return true;
+    return useRecoveryCode(user, code);
+  }
+
+  const passwordHashOf = (user) => (isObject(user) && typeof user.passwordHash === "string" && user.passwordHash ? user.passwordHash : undefined);
+
+  /**
+   * Proof that the person at the keyboard is the user, before changing how they log in: the
+   * password, or (unless `strict`; for users without a password always) a login no longer
+   * ago than totp.reauth. 403 otherwise. Wrong passwords count like failed logins.
+   */
+  async function reauthenticate(ctx, user, password, strict) {
+    const stored = passwordHashOf(user);
+    if (typeof password === "string" && password !== "") {
+      const key = /** @type {[string, number]} */ (["b:r:" + hashToken(String(user.id)), bf ? bf.freeAttempts : 1]);
+      if (guard) await guard.attempt([key]);
+      const ok = stored !== undefined && (await hashSlot(() => verifyPassword(password, stored)));
+      if (!ok) throw new HttpProblem(403, "reauth-failed", "The password is wrong");
+      if (guard) await bf.store.delete(key[0]);
+      return;
+    }
+    if (strict && stored) throw new HttpProblem(403, "reauth-required", "Confirm this with your password");
+    const at = stateOf(ctx).authTime;
+    if (typeof at === "number" && clock() - at <= c.totp.reauth * 1000) return;
+    throw new HttpProblem(403, "reauth-required", `Confirm this with your password${stored ? "" : ", or log in again"}: the login is older than ${Math.ceil(c.totp.reauth / 60)} minutes`);
+  }
+
   async function passwordLogin(ctx, body) {
     const { login, password, totp: code } = body;
     const counters = guard && guard.keysFor(login, ctx.ip);
@@ -700,7 +758,7 @@ function install(app, c) {
     if (!user || !stored || !ok) throw new HttpProblem(401, "invalid-credentials", "The login or the password is wrong");
     if (typeof user.totpSecret === "string" && user.totpSecret) {
       if (!code) throw new HttpProblem(401, "totp-required", "This account needs the code of its authenticator app");
-      if ((await useTotpCode(user, user.totpSecret, code)) === null) throw new HttpProblem(401, "totp-invalid", "The code is wrong or was used already");
+      if (!(await secondFactor(user, code))) throw new HttpProblem(401, "totp-invalid", "The code is wrong or was used already");
     }
     if (guard) await guard.succeeded(counters);
     if (fn(users.updatePasswordHash) && needsRehash(stored, c.password)) {
@@ -784,7 +842,7 @@ function install(app, c) {
     const loginBody = t.object({
       login: t.string().min(1).max(320).describe("What users.find looks the user up by, e.g. an email address"),
       password: t.string().min(1).max(4096),
-      totp: t.string().max(16).optional().describe("The authenticator app's current code, for accounts with TOTP"),
+      totp: t.string().max(32).optional().describe("The authenticator app's current code, or a recovery code, for accounts with TOTP"),
     });
     const tokens = t
       .object({ accessToken: t.string(), tokenType: t.literal("Bearer"), expiresIn: t.int().describe("Seconds"), refreshToken: t.string() })
@@ -871,21 +929,27 @@ function install(app, c) {
 
     if (c.totp && userSchemes.length) {
       const pendingKey = (user) => "p:" + hashToken(String(user.id));
+      const totpOn = (user) => typeof user.totpSecret === "string" && user.totpSecret !== "";
+      const reauthNote = `Needs \`password\`, or a login in the last ${Math.ceil(c.totp.reauth / 60)} minutes (403 \`reauth-required\`).`;
+      const password = t.string().max(4096).describe("The current password: proof that it is the user, not someone at their open session");
       app.post(
         `${base}/totp/setup`,
         {
           summary: "Start turning on TOTP",
-          description: `A new secret for the authenticator app, as text and as an otpauth URL for a QR code. It counts once ${base}/totp/confirm got a code from it.`,
+          description: `A new secret for the authenticator app, as text and as an otpauth URL for a QR code. It counts once ${base}/totp/confirm got a code from it. ${reauthNote}`,
           tags: TAGS,
           security: userSchemes,
-          response: { 200: t.object({ secret: t.string(), otpauthUrl: t.string() }), 401: P, 409: P },
+          body: t.object({ password: password.optional() }).optional(),
+          response: { 200: t.object({ secret: t.string(), otpauthUrl: t.string() }), 401: P, 403: P, 409: P, 429: P },
           examples: [noCredentials],
         },
         async (ctx) => {
           const user = stateOf(ctx).user;
-          if (typeof user.totpSecret === "string" && user.totpSecret) throw new HttpProblem(409, "totp-enabled", "TOTP is on already");
+          if (totpOn(user)) throw new HttpProblem(409, "totp-enabled", "TOTP is on already");
+          await reauthenticate(ctx, user, ctx.body?.password, false);
           const secret = generateTotpSecret();
-          await store.set(pendingKey(user), secret, 600);
+          // sealed: a leaked store gives nobody the secret of an authenticator about to be trusted
+          await store.set(pendingKey(user), seal(keys, { s: secret, u: user.id }, "totp-pending"), 600);
           const account = String(c.totp.account(user)).replace(/:/g, "") || String(user.id);
           return { secret, otpauthUrl: otpauthUrl({ secret, account, issuer: c.totp.issuer || undefined }) };
         },
@@ -894,19 +958,47 @@ function install(app, c) {
         `${base}/totp/confirm`,
         {
           summary: "Turn on TOTP with a first code",
+          description: `Saves the secret and answers ten recovery codes, each good once in place of a code; they are shown this once and kept only as hashes. ${reauthNote}`,
           tags: TAGS,
           security: userSchemes,
-          body: t.object({ code: t.string().min(6).max(10) }),
-          response: { 204: t.empty(), 400: P, 401: P, 409: P },
+          body: t.object({ code: t.string().min(6).max(10), password: password.optional() }),
+          response: { 200: t.object({ recoveryCodes: t.array(t.string()) }), 400: P, 401: P, 403: P, 409: P, 429: P },
           examples: [{ ...noCredentials, body: { code: "123456" } }],
         },
         async (ctx) => {
           const user = stateOf(ctx).user;
-          const secret = await store.get(pendingKey(user));
-          if (typeof secret !== "string") throw new HttpProblem(409, "totp-not-started", `Call ${base}/totp/setup first; a secret is kept for ten minutes`);
-          if ((await useTotpCode(user, secret, ctx.body.code)) === null) throw new HttpProblem(400, "totp-invalid", "The code is wrong; check the clock of the device");
-          await users.setTotpSecret(user.id, secret);
-          await store.delete(pendingKey(user));
+          if (totpOn(user)) throw new HttpProblem(409, "totp-enabled", "TOTP is on already");
+          await reauthenticate(ctx, user, ctx.body.password, false);
+          const notStarted = () => new HttpProblem(409, "totp-not-started", `Call ${base}/totp/setup first; a secret is kept for ten minutes`);
+          const pending = unseal(keys, await store.get(pendingKey(user)), "totp-pending");
+          if (!isObject(pending) || typeof pending.s !== "string" || pending.u !== user.id) throw notStarted();
+          if ((await useTotpCode(user, pending.s, ctx.body.code)) === null) throw new HttpProblem(400, "totp-invalid", "The code is wrong; check the clock of the device");
+          // the pending secret counts once, also with two confirmations at the same moment
+          if ((await take(store, pendingKey(user))) === undefined) throw notStarted();
+          const recoveryCodes = newRecoveryCodes();
+          await users.setTotpSecret(user.id, pending.s);
+          await users.setRecoveryCodes(user.id, recoveryCodes.map((code) => recoveryHash(normalRecovery(code))));
+          return { recoveryCodes };
+        },
+      );
+      app.post(
+        `${base}/totp/disable`,
+        {
+          summary: "Turn TOTP off",
+          description: "Needs the password (for users without one, a fresh login) and a current code or a recovery code. Removes the secret and the recovery codes.",
+          tags: TAGS,
+          security: userSchemes,
+          body: t.object({ code: t.string().min(6).max(32), password: password.optional() }),
+          response: { 204: t.empty(), 400: P, 401: P, 403: P, 409: P, 429: P },
+          examples: [{ ...noCredentials, body: { code: "123456" } }],
+        },
+        async (ctx) => {
+          const user = stateOf(ctx).user;
+          if (!totpOn(user)) throw new HttpProblem(409, "totp-not-enabled", "TOTP is not on");
+          await reauthenticate(ctx, user, ctx.body.password, true);
+          if (!(await secondFactor(user, ctx.body.code))) throw new HttpProblem(400, "totp-invalid", "The code is wrong or was used already");
+          await users.setTotpSecret(user.id, null);
+          await users.setRecoveryCodes(user.id, null);
           return reply(204);
         },
       );

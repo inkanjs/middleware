@@ -40,6 +40,7 @@ test("OpenAPI: the generated routes, scheme details and 403s", async () => {
     "POST /auth/token/refresh",
     "POST /auth/totp/setup",
     "POST /auth/totp/confirm",
+    "POST /auth/totp/disable",
     "GET /auth/oauth/{provider}",
     "GET /auth/oauth/{provider}/callback",
   ]) {
@@ -65,7 +66,7 @@ test("inkan check: every generated route has an example, and they all pass", asy
   const { app } = fullApp();
   const report = await app.check();
   const ours = report.results.filter((r) => r.path.startsWith("/auth"));
-  assert.equal(ours.length, 9);
+  assert.equal(ours.length, 10);
   for (const r of ours) assert.ok(r.ok, `${r.method} ${r.path} > ${r.example}: ${r.problems.join("; ")}`);
   assert.deepEqual(report.unchecked.filter((u) => u.includes("/auth")), []);
 });

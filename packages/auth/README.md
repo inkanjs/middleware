@@ -218,16 +218,27 @@ hashed (`hashToken`) and look them up by hash, then nothing is compared by you.
 
 ## TOTP
 
-`totp: { issuer: "Tea Shop" }` with `users.setTotpSecret(id, secret)` adds, for logged-in users:
+`totp: { issuer: "Tea Shop" }` with `users.setTotpSecret(id, secret)` and
+`users.setRecoveryCodes(id, hashes)` (and `secret`) adds, for logged-in users:
 
-- `POST /auth/totp/setup` → `{ secret, otpauthUrl }` (show the URL as a QR code). The secret
-  waits ten minutes for a confirmation.
-- `POST /auth/totp/confirm { code }` → 204, and `setTotpSecret` saves it.
+- `POST /auth/totp/setup { password? }` → `{ secret, otpauthUrl }` (show the URL as a QR
+  code). The secret waits ten minutes for a confirmation, sealed (AES-256-GCM with a key
+  derived from `secret`) in the store.
+- `POST /auth/totp/confirm { code, password? }` → `{ recoveryCodes }`: `setTotpSecret` saves
+  the secret, `setRecoveryCodes` the hashes of ten recovery codes. Show the codes now; they
+  are never shown again. Give the user's `recoveryCodes` back as the hashes you were given.
+- `POST /auth/totp/disable { password, code }` → 204: both set to null.
+
+Setup and confirm change how the account logs in, so whoever sits at an open session must
+prove it is the user: with `password`, or by a login no older than `totp.reauth` (5 minutes);
+otherwise 403 `reauth-required` (`reauth-failed` for a wrong password, which counts like a
+failed login). Disable always needs the password, and the current code or a recovery code;
+a user without a password needs a fresh login instead.
 
 From then on a password login without `totp` is a 401 `totp-required`, a wrong or reused code
-a 401 `totp-invalid`. A code works once (the last used step is kept). This holds for every
-user with a `totpSecret`, whether or not the `totp` option is on. Turning TOTP off again is
-yours: `setTotpSecret` to null after checking the password and a code.
+a 401 `totp-invalid`. A code works once (the last used step is kept). A recovery code works
+in its place, once each (`aaaa-bbbb-cccc-dddd`, 80 random bits, any case). This holds for
+every user with a `totpSecret`, whether or not the `totp` option is on.
 
 ## OAuth: GitHub, Google, any OpenID provider
 
@@ -285,12 +296,12 @@ then a read and a write, atomic only within one process.
 | Option         | Default            | What it does |
 | -------------- | ------------------ | ------------ |
 | `secret`       | –                  | ≥ 32 bytes, or a list for rotation. Needed for sessions, OAuth and own JWTs. |
-| `users`        | –                  | `find(login)`, `byId(id)`, `setTotpSecret(id, secret)`, `updatePasswordHash(id, hash)`. |
+| `users`        | –                  | `find(login)`, `byId(id)`, `setTotpSecret(id, secret)`, `setRecoveryCodes(id, hashes)`, `updatePasswordHash(id, hash)`. |
 | `session`      | on                 | `{ cookie: "sid", maxAge: "7d", secure: "auto", sameSite: "Lax", domain, store }` or `false`. |
 | `jwt`          | off                | `{ jwks \| key \| secret, algorithms, issuer, audience, clockTolerance, user, issue }`. |
 | `apiKeys`      | off                | `{ verify(key, ctx) }`. |
 | `basic`        | off                | `{ verify(user, password, ctx), realm }`. |
-| `totp`         | off                | `true` or `{ issuer, window: 1, account(user) }`. |
+| `totp`         | off                | `true` or `{ issuer, window: 1, account(user), reauth: "5m" }`. |
 | `oauth`        | off                | See above. |
 | `routes`       | `"/auth"`          | Where the routes go; `false` for none. |
 | `origins`      | `[]`               | Other origins of yours for the CSRF check. |

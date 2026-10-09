@@ -34,6 +34,8 @@ export interface AuthUser {
   passwordHash?: string | null;
   /** Base32. When set, a password login also needs the current code. */
   totpSecret?: string | null;
+  /** Hashes of the unused recovery codes, as setRecoveryCodes got them. */
+  recoveryCodes?: readonly string[] | null;
 }
 
 /** Where users come from: any database. */
@@ -43,7 +45,9 @@ export interface UserSource<U> {
   /** By id, as kept in a session or a token. Needed for sessions and tokens. */
   byId?(id: any): Awaitable<U | null | undefined>;
   /** Saves a confirmed TOTP secret. Needed with `totp`. */
-  setTotpSecret?(id: any, secret: string): Awaitable<unknown>;
+  setTotpSecret?(id: any, secret: string | null): Awaitable<unknown>;
+  /** Keeps the hashes of the recovery codes (null: none); the user's `recoveryCodes` reads them back. Needed with `totp`. */
+  setRecoveryCodes?(id: any, hashes: string[] | null): Awaitable<unknown>;
   /** Saves a new hash after a login whose hash was made with older parameters. */
   updatePasswordHash?(id: any, hash: string): Awaitable<unknown>;
 }
@@ -147,7 +151,8 @@ export interface AuthOptions<U extends AuthUser> {
   jwt?: JwtOptions<U>;
   apiKeys?: { verify(key: string, ctx: Ctx): Awaitable<U | null | undefined> };
   basic?: { realm?: string; verify(user: string, password: string, ctx: Ctx): Awaitable<U | null | undefined> };
-  totp?: true | { issuer?: string; window?: number; account?: (user: U) => string };
+  /** `reauth`: how recent a login lets setup and confirm go without the password. Default "5m". */
+  totp?: true | { issuer?: string; window?: number; account?: (user: U) => string; reauth?: Duration };
   oauth?: OAuthOptions<U>;
   /** Where the routes go; false for none. Default "/auth". */
   routes?: string | false;

@@ -12,6 +12,7 @@ export type User = {
   roles: string[];
   passwordHash: string | null;
   totpSecret?: string | null;
+  recoveryCodes?: string[] | null;
   plan: string;
 };
 
@@ -35,8 +36,11 @@ export function makeUsers() {
         return list.find((u) => u.email === login.toLowerCase());
       },
       byId: async (id: unknown) => list.find((u) => u.id === Number(id)),
-      setTotpSecret: async (id: unknown, secret: string) => {
+      setTotpSecret: async (id: unknown, secret: string | null) => {
         list.find((u) => u.id === Number(id))!.totpSecret = secret;
+      },
+      setRecoveryCodes: async (id: unknown, hashes: string[] | null) => {
+        list.find((u) => u.id === Number(id))!.recoveryCodes = hashes;
       },
     },
   };

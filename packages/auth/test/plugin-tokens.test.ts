@@ -218,7 +218,8 @@ test("TOTP: setup and confirm, then a login needs the code", async () => {
     assert.equal(wrong.status, 400);
     const code = totp(setup.body.secret, { now: clock.t });
     const ok = await app.inject({ method: "POST", url: "/auth/totp/confirm", headers: cookie, body: { code } });
-    assert.equal(ok.status, 204);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.recoveryCodes.length, 10);
     assert.equal(users.list[0].totpSecret, setup.body.secret);
     assert.equal((await app.inject({ method: "POST", url: "/auth/totp/setup", headers: cookie })).status, 409);
 
@@ -259,4 +260,96 @@ test("TOTP is enforced for a user with a secret even when the plugin's totp rout
   const res = await login(app, "bob@example.com");
   assert.equal(res.res.body.type, "totp-required");
   assert.equal(cookieOf(res.res, "sid"), undefined);
+});
+
+// ---- TOTP: re-authentication, recovery codes, disable ----
+
+async function totpOn(app: ReturnType<typeof makeApp>["app"], email = "ada@example.com") {
+  const { sid } = await login(app, email);
+  const cookie = { cookie: `sid=${sid}`, ...same };
+  const setup = await app.inject({ method: "POST", url: "/auth/totp/setup", headers: cookie });
+  const confirm = await app.inject({ method: "POST", url: "/auth/totp/confirm", headers: cookie, body: { code: totp(setup.body.secret, { now: clock.t }) } });
+  assert.equal(confirm.status, 200);
+  return { cookie, secret: setup.body.secret as string, recoveryCodes: confirm.body.recoveryCodes as string[] };
+}
+
+test("TOTP setup and confirm need the password once the login is older than totp.reauth", async () => {
+  const start = clock.t;
+  try {
+    const { app } = totpApp();
+    const { sid } = await login(app);
+    const cookie = { cookie: `sid=${sid}`, ...same };
+    clock.t += 6 * 60_000;
+    const stale = await app.inject({ method: "POST", url: "/auth/totp/setup", headers: cookie });
+    assert.equal(stale.status, 403);
+    assert.equal(stale.body.type, "reauth-required");
+    const wrong = await app.inject({ method: "POST", url: "/auth/totp/setup", headers: cookie, body: { password: "nope" } });
+    assert.equal(wrong.status, 403);
+    assert.equal(wrong.body.type, "reauth-failed");
+    const setup = await app.inject({ method: "POST", url: "/auth/totp/setup", headers: cookie, body: { password: "correct horse" } });
+    assert.equal(setup.status, 200);
+    const code = totp(setup.body.secret, { now: clock.t });
+    const noPassword = await app.inject({ method: "POST", url: "/auth/totp/confirm", headers: cookie, body: { code } });
+    assert.equal(noPassword.body.type, "reauth-required");
+    const ok = await app.inject({ method: "POST", url: "/auth/totp/confirm", headers: cookie, body: { code, password: "correct horse" } });
+    assert.equal(ok.status, 200);
+  } finally {
+    clock.t = start;
+  }
+});
+
+test("TOTP: the secret waiting for its confirmation is sealed in the store", async () => {
+  const store = memoryStore();
+  const { app } = makeApp({ totp: true, store });
+  const { sid } = await login(app);
+  const setup = await app.inject({ method: "POST", url: "/auth/totp/setup", headers: { cookie: `sid=${sid}`, ...same } });
+  let seen = 0;
+  for (const user of [1, 2, 3]) {
+    const { createHash } = await import("node:crypto");
+    const v = store.get("p:" + createHash("sha256").update(String(user)).digest("base64url"));
+    if (v === undefined) continue;
+    seen++;
+    assert.equal(typeof v, "string");
+    assert.ok(!String(v).includes(setup.body.secret), "not the secret in plain text");
+  }
+  assert.equal(seen, 1);
+});
+
+test("TOTP recovery codes: shown once, stored hashed, each works once in place of a code", async () => {
+  const { app, users } = totpApp();
+  const { recoveryCodes } = await totpOn(app);
+  assert.equal(new Set(recoveryCodes).size, 10);
+  for (const code of recoveryCodes) assert.match(code, /^[a-z2-7]{4}(-[a-z2-7]{4}){3}$/);
+  const stored = users.list[0].recoveryCodes!;
+  assert.equal(stored.length, 10);
+  for (const code of recoveryCodes) assert.ok(!stored.includes(code) && !stored.some((h) => h.includes(code.replace(/-/g, ""))));
+  const first = await login(app, "ada@example.com", { totp: recoveryCodes[0].toUpperCase() });
+  assert.equal(first.res.status, 200, "a recovery code, in any case and with its dashes");
+  assert.equal(users.list[0].recoveryCodes!.length, 9);
+  const again = await login(app, "ada@example.com", { totp: recoveryCodes[0] });
+  assert.equal(again.res.body.type, "totp-invalid", "used once");
+  assert.equal((await login(app, "ada@example.com", { totp: "aaaa-bbbb-cccc-dddd" })).res.body.type, "totp-invalid");
+});
+
+test("TOTP disable: needs the password and a current code", async () => {
+  const start = clock.t;
+  try {
+    const { app, users } = totpApp();
+    const { cookie, secret } = await totpOn(app);
+    const disable = (body: Record<string, unknown>) => app.inject({ method: "POST", url: "/auth/totp/disable", headers: cookie, body });
+    clock.t += 30_000;
+    const code = totp(secret, { now: clock.t });
+    assert.equal((await disable({ code })).body.type, "reauth-required", "a fresh session is not enough");
+    assert.equal((await disable({ code, password: "nope" })).body.type, "reauth-failed");
+    const wrongCode = await disable({ code: "000000", password: "correct horse" });
+    assert.equal(wrongCode.status, 400);
+    assert.equal(wrongCode.body.type, "totp-invalid");
+    assert.equal((await disable({ code, password: "correct horse" })).status, 204);
+    assert.equal(users.list[0].totpSecret, null);
+    assert.equal(users.list[0].recoveryCodes, null);
+    assert.equal((await login(app)).res.status, 200, "a password login is enough again");
+    assert.equal((await disable({ code, password: "correct horse" })).status, 409);
+  } finally {
+    clock.t = start;
+  }
 });
