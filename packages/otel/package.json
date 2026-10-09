@@ -1,0 +1,50 @@
+{
+  "name": "@inkanjs/otel",
+  "version": "0.1.0",
+  "description": "OpenTelemetry tracing for inkan: a server span per request, with the semantic conventions for HTTP.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/otel"
+  },
+  "keywords": [
+    "inkan",
+    "opentelemetry",
+    "otel",
+    "tracing",
+    "observability",
+    "traceparent"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.4.0",
+    "@vxnsin/inkan": ">=0.7.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@vxnsin/inkan": "file:../../../inkan-release-0.7"
+  },
+  "scripts": {
+    "test": "node --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
