@@ -74,6 +74,43 @@ export function idempotency(options = {}) {
   const lock = options.lockTtl ?? 60_000;
   const keep = options.keep ?? defaultKeep;
   const scopeOf = options.scope;
+  const cookies = options.cookies ?? ["sid", "__Host-sid"];
+
+  /**
+   * Who is asking, when no `scope` says it: the logged-in user (ctx.user.id, as
+   * @inkanjs/auth puts it there), else the credentials the request brings, hashed: the
+   * Authorization header, an API key the route takes, a session cookie. Without any of them
+   * the client's address, but never on a route with security: there a caller nobody can
+   * name would share its keys with every other one.
+   */
+  function callerOf(ctx, authorization) {
+    const user = /** @type {any} */ (ctx).user;
+    const uid = user !== null && typeof user === "object" ? user.id : undefined;
+    if (typeof uid === "string" || typeof uid === "number") return "u:" + sha256(String(uid));
+    const raw = ctx.rawHeaders ?? ctx.headers;
+    const auth = raw.authorization ?? authorization;
+    if (auth) return "a:" + sha256(String(auth));
+    const security = ctx.route?.security ?? [];
+    for (const s of security) {
+      if (s === null || typeof s !== "object" || typeof s.apiKey !== "string") continue;
+      const where = s.in ?? "header";
+      // raw headers and the URL's own query: a schema may have cut ctx.headers and ctx.query down
+      const v = where === "header" ? raw[s.apiKey.toLowerCase()] : where === "query" ? ctx.url.searchParams.getAll(s.apiKey).join("\n") : ctx.cookies?.[s.apiKey];
+      if (v !== undefined && v !== "") return "k:" + sha256(`${where}:${s.apiKey}:${String(v)}`);
+    }
+    for (const name of cookies) {
+      const v = ctx.cookies?.[name];
+      if (v) return "c:" + sha256(`${name}:${v}`);
+    }
+    if (security.length) {
+      throw new HttpProblem(
+        500,
+        "idempotency-no-scope",
+        `idempotency: ${ctx.method} ${ctx.path} has security, but no user, authorization header, API key or session cookie names the caller; give idempotency({ scope: (ctx) => … })`,
+      );
+    }
+    return ctx.ip ? "ip:" + ctx.ip : "anonymous";
+  }
 
   return plugin(
     (app) => {
@@ -97,9 +134,9 @@ export function idempotency(options = {}) {
         }
         if (!KEY.test(key)) throw new HttpProblem(400, "idempotency-key-invalid", `The ${header} header has 1 to 255 visible ASCII characters`);
         // keys are the client's: one caller's key never reaches another caller's answer
-        const caller = scopeOf ? String(await scopeOf(ctx)) : seen.auth ? sha256(seen.auth) : "";
+        const caller = scopeOf ? "s:" + String(await scopeOf(ctx)) : callerOf(ctx, seen.auth);
         const id = sha256(`${caller}\n${key}`);
-        const fingerprint = sha256(`${ctx.method}\n${ctx.path}\n${stable(ctx.query)}\n${stable(ctx.body)}`);
+        const fingerprint = sha256(`${caller}\n${ctx.method}\n${ctx.path}\n${stable(ctx.query)}\n${stable(ctx.body)}`);
 
         const reused = () => new HttpProblem(422, "idempotency-key-reused", `This ${header} was used for another request`);
         const inFlight = () => new HttpProblem(409, "idempotency-in-flight", `A request with this ${header} is still running; try again shortly`, {}, { "retry-after": "1" });

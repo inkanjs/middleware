@@ -43,11 +43,15 @@ export type IdempotencyOptions = {
   /** Which statuses are kept. Default 2xx, and 4xx except 409 and 429; the others may be tried again. */
   keep?: (status: number) => boolean;
   /**
-   * Whose key it is: keys of different callers never meet. Default: the Authorization
-   * header, hashed, or one space for everybody without one. Give the user's id when the
-   * caller is known by a cookie.
+   * Whose key it is: keys of different callers never meet. Default, the first there is:
+   * `ctx.user.id` (as @inkanjs/auth sets it), the Authorization header, an API key the
+   * route's `security` takes, a session cookie named in `cookies`, all hashed; else the
+   * client's address. On a route with `security` and none of them, the answer is a 500
+   * that asks for this option.
    */
   scope?: (ctx: Context<any, any, any, any, any> & Record<string, any>) => string | Promise<string>;
+  /** Session cookies that name the caller when nothing else does. Default `["sid", "__Host-sid"]`. */
+  cookies?: string[];
 };
 
 /**

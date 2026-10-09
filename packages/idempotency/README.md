@@ -35,7 +35,8 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
 | `ttl` | `86400000` | ms an answer is kept, a day |
 | `lockTtl` | `60000` | ms a running request holds its key, should its process die midway |
 | `keep` | 2xx, and 4xx but 409 and 429 | `(status) => boolean`: which answers are kept |
-| `scope` | the Authorization header, hashed | `(ctx) => string`: whose key it is |
+| `scope` | the user, else the credentials, else the address (below) | `(ctx) => string`: whose key it is |
+| `cookies` | `["sid", "__Host-sid"]` | session cookies that name the caller when nothing else does |
 
 ## How it behaves
 
@@ -56,9 +57,14 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
 - **At the same time.** Two requests with the same key in the same process never both run:
   the second one is a 409. Across processes that holds when the store has `add` (keep only
   when the key is free, as Redis `SET … NX`); `memoryStore` has it.
-- **Whose key.** Keys are the client's, so they are kept per caller: by default the
-  Authorization header, hashed, so one token never gets another token's answer. When callers
-  are known by a session cookie, give `scope: (ctx) => String(ctx.user.id)`.
+- **Whose key.** Keys are the client's, so they are kept per caller, and the caller is part of
+  the fingerprint too. Without `scope` the caller is the first of: `ctx.user.id` (what
+  @inkanjs/auth sets, so a user is the same caller by cookie or by token), the Authorization
+  header, an API key the route's `security` takes, a session cookie named in `cookies` (all
+  hashed), and last the client's address (`ctx.ip`; mind `trustProxy`). A route with
+  `security` never falls back to the address: when nothing there names the caller, the answer
+  is a 500 `idempotency-no-scope` that asks for `scope`. When your callers are known some
+  other way, say how: `scope: (ctx) => String(ctx.user.id)`.
 - **OpenAPI.** Every route it acts on gets the optional `Idempotency-Key` header parameter
   (required with `required`) and the 409 and 422 answers, as problem documents.
 - Shared plugin: register it on the app for every route, or inside a plugin for its routes.

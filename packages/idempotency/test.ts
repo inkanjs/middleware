@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, problem, reply, t } from "@vxnsin/inkan";
+import { inkan, plugin, problem, reply, t } from "@vxnsin/inkan";
 import { idempotency, memoryStore, type IdempotencyOptions } from "./index.js";
 
 const quiet = { log: false as const };
@@ -181,6 +181,47 @@ test("keys belong to their caller: the Authorization header by default, or scope
   await order(scoped.app, "k", "sencha", { "x-user": "2" });
   assert.equal((await order(scoped.app, "k", "sencha", { "x-user": "1" })).headers["idempotent-replayed"], "true");
   assert.equal(scoped.count(), 2);
+});
+
+test("without scope, callers are told apart by ctx.user, a session cookie, or the address; the caller is in the fingerprint", async () => {
+  // a stand-in for @inkanjs/auth: ctx.user from a header nothing else reads
+  const users = plugin((app) => app.decorateRequest("user", (ctx) => {
+    const id = (ctx.rawHeaders as Record<string, string | undefined>)["x-who"];
+    return id ? { id } : undefined;
+  }), { shared: true });
+  let n = 0;
+  const app = inkan({ ...quiet, trustProxy: true })
+    .register(users)
+    .register(idempotency())
+    .post("/orders", () => ({ id: ++n }));
+  const post = (headers: Record<string, string>) => app.inject({ method: "POST", url: "/orders", headers: { "idempotency-key": "k", ...headers } });
+
+  await post({ "x-who": "alice" });
+  const bob = await post({ "x-who": "bob" });
+  assert.equal(bob.headers["idempotent-replayed"], undefined, "bob, logged in, does not get alice's answer");
+  assert.equal((await post({ "x-who": "alice" })).headers["idempotent-replayed"], "true");
+
+  await post({ cookie: "sid=one" });
+  assert.equal((await post({ cookie: "sid=two" })).headers["idempotent-replayed"], undefined, "another session cookie, another caller");
+  assert.equal((await post({ cookie: "sid=one" })).headers["idempotent-replayed"], "true");
+
+  await post({ "x-forwarded-for": "203.0.113.1" });
+  assert.equal((await post({ "x-forwarded-for": "203.0.113.2" })).headers["idempotent-replayed"], undefined, "another address, another caller");
+  assert.equal((await post({ "x-forwarded-for": "203.0.113.1" })).headers["idempotent-replayed"], "true");
+  assert.equal(n, 6);
+});
+
+test("an API key the route takes names the caller too", async () => {
+  let n = 0;
+  const app = inkan(quiet)
+    .register(idempotency())
+    .post("/orders", { security: { apiKey: "key", in: "query" } }, () => ({ id: ++n }));
+  const post = (key: string) => app.inject({ method: "POST", url: `/orders?key=${key}`, headers: { "idempotency-key": "k" } });
+  await post("a");
+  const other = await post("b");
+  assert.equal(other.status, 200, "another key holder's request, not a reused key");
+  assert.equal(other.headers["idempotent-replayed"], undefined);
+  assert.equal((await post("a")).headers["idempotent-replayed"], "true");
 });
 
 test("an answer is kept for ttl", async (t) => {
