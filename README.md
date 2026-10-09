@@ -6,11 +6,11 @@ itself, every package keeps no dependencies, but `@inkanjs/otel`, which needs
 
 | package | what it does |
 | --- | --- |
-| [`@inkanjs/auth`](packages/auth) | Work in progress: JWT signing today; verification with JWKS, passwords, TOTP and OAuth/OIDC are built and come public with the plugin. |
-| `@inkanjs/session` | Planned: cookie sessions, signed or encrypted, or a store behind a random id. |
-| `@inkanjs/secure-headers` | Planned: the security headers a browser-facing API should send. |
-| `@inkanjs/etag` | Planned: ETags and 304 answers. |
-| `@inkanjs/idempotency` | Planned: idempotency keys for safe retries of POST requests. |
+| [`@inkanjs/auth`](packages/auth) | Login, sessions, JWT and JWKS, API keys, basic auth, roles, 2FA with recovery codes, OAuth and OIDC, refresh tokens, brute-force protection. |
+| [`@inkanjs/session`](packages/session) | Cookie sessions, signed or encrypted, or a store behind a random id; flash messages. |
+| [`@inkanjs/secure-headers`](packages/secure-headers) | The security headers a browser-facing API should send, with a strict CSP and per-request nonces. |
+| [`@inkanjs/etag`](packages/etag) | ETags and 304 answers for JSON, before compression. |
+| [`@inkanjs/idempotency`](packages/idempotency) | Idempotency keys for safe retries of POST and PATCH, scoped per caller. |
 | [`@inkanjs/proxy`](packages/proxy) | A streaming reverse proxy: a prefix or one route handed on to an upstream. |
 | [`@inkanjs/circuit-breaker`](packages/circuit-breaker) | Circuit breakers for outgoing calls and for routes: fail fast while something is down. |
 | [`@inkanjs/otel`](packages/otel) | OpenTelemetry tracing: a server span per request, with the HTTP semantic conventions. |
