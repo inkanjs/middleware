@@ -1,0 +1,48 @@
+{
+  "name": "@inkanjs/session",
+  "version": "0.1.0",
+  "description": "Cookie sessions for inkan without dependencies: signed or encrypted cookies, or a store behind a random id.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/session"
+  },
+  "keywords": [
+    "inkan",
+    "session",
+    "cookie",
+    "hmac",
+    "aes-gcm",
+    "session-store"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.7.0"
+  },
+  "devDependencies": {
+    "@vxnsin/inkan": "file:../../../inkan-release-0.7"
+  },
+  "scripts": {
+    "test": "node --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
