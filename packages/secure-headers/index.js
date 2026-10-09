@@ -111,7 +111,7 @@ export function secureHeaders(options = {}) {
       });
       return app.decorateRequest("cspNonce", () => randomBytes(16).toString("base64"));
     },
-    { name: "secure-headers", shared: true },
+    { name: "secure-headers", shared: true, inkan: ">=0.7.0 <0.8.0" },
   );
 }
 
