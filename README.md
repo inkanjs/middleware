@@ -1,7 +1,8 @@
 # inkan middleware
 
 More middleware for [inkan](https://github.com/inkanjs/inkan), one package each. Like inkan
-itself, every package keeps no dependencies.
+itself, every package keeps no dependencies, but `@inkanjs/otel`, which needs
+`@opentelemetry/api` as a peer.
 
 | package | what it does |
 | --- | --- |
@@ -10,6 +11,9 @@ itself, every package keeps no dependencies.
 | `@inkanjs/secure-headers` | Planned: the security headers a browser-facing API should send. |
 | `@inkanjs/etag` | Planned: ETags and 304 answers. |
 | `@inkanjs/idempotency` | Planned: idempotency keys for safe retries of POST requests. |
+| [`@inkanjs/proxy`](packages/proxy) | A streaming reverse proxy: a prefix or one route handed on to an upstream. |
+| [`@inkanjs/circuit-breaker`](packages/circuit-breaker) | Circuit breakers for outgoing calls and for routes: fail fast while something is down. |
+| [`@inkanjs/otel`](packages/otel) | OpenTelemetry tracing: a server span per request, with the HTTP semantic conventions. |
 
 Every package is tested in CI on Node 22, 24 and 26:
 
