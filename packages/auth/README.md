@@ -136,6 +136,22 @@ cookie or token signed with it can still be alive (the session `maxAge`).
 `publicUser(user)` says what `/login` and `/me` show (default `{ id, roles }`), `userSchema`
 its contract.
 
+### Behind a proxy
+
+> **Warning:** do not use `inkan({ trustProxy: true })` behind a proxy. `true` takes the
+> leftmost `X-Forwarded-For` entry, and that one is written by the client: anyone can send
+> `X-Forwarded-For: 1.2.3.4` and be a new address on every request, which makes the
+> per-address brute-force counter worthless. Say how many proxies are in front of the app
+> (`trustProxy: 1` for one load balancer), or give a function that recognizes them:
+
+```js
+inkan({ trustProxy: 1 });                                  // one proxy, it appends the client
+inkan({ trustProxy: (ip) => ip.startsWith("10.0.") });    // your proxies' addresses
+```
+
+The plugin cannot see the app's `trustProxy` (inkan gives plugins no view of it), so it
+cannot warn you at startup.
+
 ## Bearer tokens (JWT)
 
 From your identity provider:
