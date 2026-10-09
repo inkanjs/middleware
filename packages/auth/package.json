@@ -1,7 +1,7 @@
 {
   "name": "@inkanjs/auth",
   "version": "0.1.0",
-  "description": "Authentication for inkan without dependencies: JWT, passwords, TOTP and OAuth on node:crypto alone.",
+  "description": "Authentication for inkan without dependencies: sessions, JWTs, API keys, passwords, TOTP and OAuth on node:crypto alone.",
   "type": "module",
   "license": "MIT",
   "author": "Vensin (https://github.com/vxnsin)",
@@ -19,7 +19,10 @@
     "oidc",
     "pkce",
     "totp",
-    "scrypt"
+    "scrypt",
+    "session",
+    "csrf",
+    "refresh-token"
   ],
   "exports": {
     ".": {
