@@ -252,7 +252,10 @@ auth({
     github: { clientId, clientSecret },
     google: { clientId, clientSecret },
     providers: { corp: { provider: oidcProvider({ issuer: "https://login.corp.example" }), clientId, clientSecret } },
-    onLogin: async (profile, provider) => db.users.linkOrCreate(provider, profile), // your user, or nothing to refuse
+    // your user, or nothing to refuse; link to an existing account only by a VERIFIED email
+    onLogin: async (profile, provider) =>
+      (await db.users.byProvider(provider, profile.id)) ??
+      (profile.emailVerified ? await db.users.linkByEmail(profile.email, provider, profile.id) : await db.users.create(provider, profile)),
     successRedirect: "/",
     failureRedirect: "/login", // optional: ?error=<type> instead of a problem
   },
@@ -266,7 +269,10 @@ verifier, verifies the id_token for OpenID, and hands `onLogin` the profile:
 `{ id, email, emailVerified, name, avatarUrl, login? }`. Register the callback URL
 `${baseUrl}/auth/oauth/<provider>/callback` with the provider.
 
-**Link accounts by verified email only** (`profile.emailVerified`), or by the provider's `id`.
+**`onLogin` must link to an existing account only by a verified email** (`profile.emailVerified
+=== true`), or by the provider's `id` it linked before. Many providers let anyone put any
+address on an account; linking by an unverified email hands your user's account to whoever
+typed their address. Without `emailVerified`, make a new account or refuse.
 
 ## Store
 
@@ -328,8 +334,10 @@ Tested against the official vectors (RFC 7515, 8037, 6238, 4226, 4648, 7636).
 
 ## Security notes, and the limits
 
-- **A process-local store is per process.** Behind several processes, use a shared store, or
-  sessions, lockouts and refresh rotation do not hold across them.
+- **A process-local store is per process.** Behind several processes, use a shared store (and
+  a shared `bruteForce.store`), or sessions, lockouts and refresh rotation do not hold across
+  them. A shared store needs atomic `take` and `add` for the one-time steps (refresh tokens,
+  recovery codes, the pending TOTP secret).
 - **Refresh rotation is atomic across processes only with a store that has an atomic `add`.**
   Without it, two uses of one token at the same moment in two processes may both pass. A
   client that sends the same refresh token twice at once loses its family (by design: it
@@ -350,7 +358,16 @@ Tested against the official vectors (RFC 7515, 8037, 6238, 4226, 4648, 7636).
 - Sessions have an absolute lifetime, no idle timeout.
 - `users.find` itself may take longer for a known login than for an unknown one; the dummy
   hash covers the hashing, not your database.
-- TOTP secrets are stored by you: encrypt them at rest if your database is shared.
+- Confirmed TOTP secrets are stored by you: encrypt them at rest if your database is shared.
+  (The one waiting for its confirmation is sealed in the plugin's store.) Recovery codes reach
+  you as hashes only.
+- `onLogin` decides who an OAuth login is; it is only as safe as its linking (verified emails
+  only, above).
+- Sessions and access tokens stay valid when TOTP is turned on or off, or the password
+  changes; end them yourself if that matters (see "log out everywhere").
+- The CSRF fallback (no `Sec-Fetch-Site`) compares the `Origin`'s scheme and host with the
+  request's; behind a TLS-terminating proxy without `trustProxy`, list your public origin in
+  `origins`.
 - The CSRF check refuses cookie-authenticated unsafe requests without `Origin` or
   `Sec-Fetch-Site`; every current browser sends one of them.
 - Passkeys/WebAuthn, magic links and password reset mails are not part of this package.
