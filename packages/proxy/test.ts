@@ -310,3 +310,23 @@ test("encoded slashes, backslashes and NUL, also double-encoded, are a 400 befor
   assert.equal(await rawStatus(url, "/items/7"), 200);
   assert.deepEqual(asked, ["/public/a%20b/c%25d", "/public/items/7"]);
 });
+
+test("the client's cookie and authorization stay here unless forwardCredentials; headers can still set them", async (t) => {
+  const up = await serve(t, echo);
+  const creds = { cookie: "sid=app-session", authorization: "Bearer app-token" };
+  const strip = inkan(quiet).register(proxy({ to: up }));
+  const h = (await strip.inject({ url: "/x", headers: creds })).body.headers;
+  assert.equal(h.cookie, undefined);
+  assert.equal(h.authorization, undefined);
+
+  const own = inkan(quiet).register(proxy({ to: up, headers: { authorization: "Bearer upstream" } }));
+  assert.equal((await own.inject({ url: "/x", headers: creds })).body.headers.authorization, "Bearer upstream");
+
+  const pass = inkan(quiet).register(proxy({ to: up, forwardCredentials: true }));
+  const p = (await pass.inject({ url: "/x", headers: creds })).body.headers;
+  assert.equal(p.cookie, "sid=app-session");
+  assert.equal(p.authorization, "Bearer app-token");
+
+  const one = inkan(quiet).get("/one", proxyTo(up));
+  assert.equal((await one.inject({ url: "/one", headers: creds })).body.headers.cookie, undefined, "proxyTo too");
+});

@@ -26,6 +26,11 @@ GET  /legacy/teas/1?x=1   → GET  http://legacy:8080/teas/1?x=1
 GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 ```
 
+> **The client's `cookie` and `authorization` headers are not passed on by default.** They
+> belong to your app: an upstream that sees them can act as the user on it. For an upstream
+> in the same trust domain (same users, same sessions, e.g. the old half of the same app),
+> set `forwardCredentials: true`. To give the upstream its own credentials, use `headers`.
+
 ## Options
 
 | option | default | |
@@ -33,6 +38,7 @@ GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 | `to` | required | the upstream: `http://host:port`, or with a path every request goes under (`http://legacy:8080/api`) |
 | `prefix` | `/` | for `proxy()`: the path it takes, in the scope it is registered in |
 | `rewrite` | none | `(path) => string`: the path to ask for, from the request's path (for `proxy()`, the part after the prefix) |
+| `forwardCredentials` | `false` | pass the client's `cookie` and `authorization` on (see above) |
 | `headers` | none | headers to set on the upstream request, `null` removes one; or `(ctx) => headers` |
 | `timeout` | `30000` | ms the upstream may stay silent: a 504 before its answer, the answer cut during it; `0` for none |
 | `xForwarded` | `true` | `x-forwarded-for`, `-proto` and `-host` for the upstream |

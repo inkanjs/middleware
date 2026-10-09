@@ -14,3 +14,5 @@
 - Security: an escaped slash, backslash or NUL in the path (`%2f`, `%5c`, `%00`, also
   escaped twice, and `%252e`) is a 400 `bad-path`; `/p/a%2f..%2f..%2fadmin` got past the
   dot-segment check. `proxyTo` with `rewrite` checks the path too.
+- Security: the client's `cookie` and `authorization` are no longer passed on;
+  `forwardCredentials: true` for an upstream of the same trust.

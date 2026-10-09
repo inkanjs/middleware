@@ -109,6 +109,11 @@ function forward(ctx, target, path, o) {
   delete headers.host;
   delete headers.expect; // the 100-continue was this server's to answer
   headers.host = target.url.host;
+  if (!o.forwardCredentials) {
+    // the client's credentials are for this app: an upstream of another trust never sees them
+    delete headers.cookie;
+    delete headers.authorization;
+  }
   if (o.xForwarded) {
     const prior = raw["x-forwarded-for"];
     const ip = ctx.ip;

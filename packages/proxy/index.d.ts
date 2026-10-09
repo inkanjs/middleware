@@ -17,6 +17,12 @@ export type ProxyOptions = {
    * origin. The request's query is added unless the result has one.
    */
   rewrite?: (path: string) => string;
+  /**
+   * Passes the client's `cookie` and `authorization` headers on. Default false: they are the
+   * app's, and the upstream never sees them. Set true only for an upstream of the same trust
+   * (same users, same sessions). `headers` can set either one in any case.
+   */
+  forwardCredentials?: boolean;
   /** Headers to set on the upstream request; `null` removes one. A function is asked per request. */
   headers?: Record<string, string | null> | ((ctx: Ctx) => Record<string, string | null>);
   /** Milliseconds the upstream may stay silent: before its answer a 504, during it the answer is cut. Default 30000, 0 for none. */
