@@ -114,10 +114,22 @@ cookie or token signed with it can still be alive (the session `maxAge`).
 
 - Unknown logins and users without `passwordHash` are checked against a dummy hash, so the
   answer takes as long as for a real user, and all three failures read the same.
-- **Brute force:** each login and each client address get `freeAttempts` (5) and
-  `ipFreeAttempts` (50) failures, then an exponential lockout (1s, 2s, 4s, … up to
-  `maxDelay`, 15 minutes): 429 `too-many-attempts` with `retry-after`. A lockout skips the
-  user lookup and the hash. Counters forget after `window` (15 minutes) of quiet.
+- **Brute force:** three counters, each with an exponential lockout once its free failures
+  are used up (1s, 2s, 4s, … up to `maxDelay`, 15 minutes; 429 `too-many-attempts` with
+  `retry-after`):
+  - the client address, `ipFreeAttempts` (50). An IPv6 address counts by its /64, since one
+    client usually holds a whole /64. It is checked first: a locked address writes no more
+    counters. A successful login gives the address its attempt back.
+  - the login from that address, `freeAttempts` (5): the fast lock against one guesser.
+  - the login from everywhere, `loginFreeAttempts` (100). Why two for the login: with only a
+    per-login lock, anyone who knows your email could lock you out from one machine. Here
+    one machine only locks itself; locking the account for everyone takes many failures,
+    which takes many addresses, and still holds against a distributed guesser.
+
+  A lockout skips the user lookup and the hash; a success clears the login's counters.
+  Counters forget after `window` (15 minutes) of quiet. They live in `bruteForce.store`, by
+  default a bounded memoryStore of their own, so a flood of made-up logins never pushes
+  sessions or refresh tokens out of `store`. With several processes, give it a shared one.
 - With `users.updatePasswordHash(id, hash)`, a login whose hash was made with older scrypt
   parameters stores a fresh one.
 
@@ -261,7 +273,7 @@ then a read and a write, atomic only within one process.
 | `userSchema`   | matches the default | The contract of `publicUser`. |
 | `roles`        | `user.roles`       | A user's roles. |
 | `password`     | `{ ln: 17, r: 8, p: 1 }` | scrypt cost for the dummy hash and rehashing. |
-| `bruteForce`   | on                 | `{ freeAttempts: 5, ipFreeAttempts: 50, maxDelay: 900, window: 900 }` or `false`. |
+| `bruteForce`   | on                 | `{ freeAttempts: 5, loginFreeAttempts: 100, ipFreeAttempts: 50, maxDelay: 900, window: 900, store }` or `false`. |
 
 ## The building blocks
 
@@ -288,8 +300,13 @@ Tested against the official vectors (RFC 7515, 8037, 6238, 4226, 4648, 7636).
   can: logout deletes them on the server.
 - **No "log out everywhere"**: sessions are not indexed by user. After a password change,
   end other sessions yourself (e.g. a `sessionsValidAfter` on the user, checked in `byId`).
-- **Lockouts are a lever for others**: anyone can lock a login for up to `maxDelay` by
-  failing on purpose. The lockout is short and exponential for that reason.
+- **Lockouts are still a lever, if a smaller one**: someone with many addresses can lock a
+  login for everyone (`loginFreeAttempts`), for up to `maxDelay`. The lockout is short and
+  exponential for that reason.
+- **The address is what `ctx.ip` says.** Behind a proxy, set the app's `trustProxy` to the
+  number of proxies (or a function that knows them), **not `true`**: `true` believes the
+  leftmost `X-Forwarded-For` entry, which the client writes itself, so every guess could
+  come from a made-up address and the per-address counters would count nothing.
 - **Basic auth and API keys have no brute-force counter**; use long random keys, and inkan's
   `rateLimit` in front.
 - Sessions have an absolute lifetime, no idle timeout.

@@ -44,9 +44,9 @@ export function makeUsers() {
 
 export const clock = { t: Date.UTC(2026, 9, 1, 12, 0, 0) };
 
-export function makeApp(extra: Partial<AuthOptions<User>> = {}, users = makeUsers()) {
+export function makeApp(extra: Partial<AuthOptions<User>> = {}, users = makeUsers(), appOptions: { trustProxy?: boolean } = {}) {
   const plugin = auth<User>({ secret: SECRET, users: users.source, password: FAST, clock: () => clock.t, ...extra });
-  const app = inkan({ log: false })
+  const app = inkan({ log: false, ...appOptions })
     .register(plugin)
     .get("/public", (ctx) => ({ user: ctx.user?.id ?? null, method: ctx.auth.method ?? null }))
     .get("/account", { security: plugin.session }, (ctx) => ({ id: ctx.user!.id, plan: ctx.user!.plan }))

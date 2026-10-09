@@ -161,8 +161,14 @@ export interface AuthOptions<U extends AuthUser> {
   roles?: (user: U) => readonly string[];
   /** scrypt parameters for the dummy hash and for rehashing. */
   password?: ScryptParams;
-  /** Failed logins per login and per address before an exponential lockout; false turns it off. */
-  bruteForce?: false | { freeAttempts?: number; ipFreeAttempts?: number; maxDelay?: number; window?: number };
+  /**
+   * Failed logins before an exponential lockout: `freeAttempts` (5) per login from one address,
+   * `loginFreeAttempts` (100) per login from everywhere, `ipFreeAttempts` (50) per address (an
+   * IPv6 address by its /64). Counted in `store`, by default a memoryStore of its own. false turns it off.
+   */
+  bruteForce?:
+    | false
+    | { freeAttempts?: number; loginFreeAttempts?: number; ipFreeAttempts?: number; maxDelay?: number; window?: number; store?: AuthStore };
   /** Milliseconds now; for tests. */
   clock?: () => number;
 }

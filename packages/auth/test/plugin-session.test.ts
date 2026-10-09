@@ -284,6 +284,50 @@ test("brute force: a locked login does not even look the user up", async () => {
   assert.equal(users.finds, before);
 });
 
+const from = (ip: string) => ({ "x-forwarded-for": ip });
+const tryLogin = (app: ReturnType<typeof makeApp>["app"], login: string, password: string, ip: string) =>
+  app.inject({ method: "POST", url: "/auth/login", headers: from(ip), body: { login, password } });
+
+test("brute force: a stranger failing from one address does not lock the owner out everywhere", async () => {
+  const { app } = makeApp({ bruteForce: { freeAttempts: 3 } }, makeUsers(), { trustProxy: true });
+  for (let i = 0; i < 10; i++) await tryLogin(app, "ada@example.com", "guess", "198.51.100.7");
+  assert.equal((await tryLogin(app, "ada@example.com", "correct horse", "198.51.100.7")).status, 429, "the guessing address is locked");
+  assert.equal((await tryLogin(app, "ada@example.com", "correct horse", "203.0.113.9")).status, 200, "the owner, elsewhere, is not");
+});
+
+test("brute force: many failures from many addresses lock the login itself", async () => {
+  const { app } = makeApp({ bruteForce: { freeAttempts: 3, loginFreeAttempts: 6 } }, makeUsers(), { trustProxy: true });
+  for (let i = 0; i < 7; i++) assert.equal((await tryLogin(app, "ada@example.com", "guess", `198.51.100.${i}`)).status, 401);
+  assert.equal((await tryLogin(app, "ada@example.com", "correct horse", "203.0.113.9")).status, 429);
+});
+
+test("brute force: successful logins do not count against the address", async () => {
+  const { app } = makeApp({ bruteForce: { ipFreeAttempts: 3 } }, makeUsers(), { trustProxy: true });
+  for (let i = 0; i < 8; i++) assert.equal((await tryLogin(app, "bob@example.com", "correct horse", "198.51.100.1")).status, 200, `login ${i + 1}`);
+});
+
+test("brute force: an IPv6 address counts by its /64", async () => {
+  const { app } = makeApp({ bruteForce: { freeAttempts: 100, ipFreeAttempts: 3 } }, makeUsers(), { trustProxy: true });
+  for (let i = 1; i <= 4; i++) assert.equal((await tryLogin(app, `u${i}@example.com`, "x", `2001:db8:1:2::${i.toString(16)}`)).status, 401);
+  assert.equal((await tryLogin(app, "u9@example.com", "x", "2001:db8:1:2:ffff:1:2:3")).status, 429, "the same /64");
+  assert.equal((await tryLogin(app, "u9@example.com", "x", "2001:db8:1:3::1")).status, 401, "another /64");
+});
+
+test("brute force: counters live in a store of their own; a locked address writes no more of them", async () => {
+  const store = memoryStore({ max: 20 });
+  const counters = memoryStore();
+  const { app } = makeApp({ store, bruteForce: { ipFreeAttempts: 2, store: counters } }, makeUsers(), { trustProxy: true });
+  const { sid } = await login(app);
+  const before = store.size;
+  for (let i = 0; i < 3; i++) await tryLogin(app, `u${i}@example.com`, "x", "198.51.100.1");
+  const size = counters.size;
+  for (let i = 0; i < 50; i++) assert.equal((await tryLogin(app, `flood${i}@example.com`, "x", "198.51.100.1")).status, 429);
+  assert.equal(counters.size, size, "no per-login record once the address is locked");
+  for (let i = 0; i < 50; i++) await tryLogin(app, `flood${i}@example.com`, "x", `203.0.113.${i}`);
+  assert.equal(store.size, before, "the session store holds no counters");
+  assert.equal((await app.inject({ url: "/account", headers: withSid(sid) })).status, 200, "the session survived the flood");
+});
+
 test("options are checked when the plugin is made", () => {
   assert.throws(() => auth({ secret: "short", users: makeUsers().source }), /32 bytes/);
   assert.throws(() => auth({ users: makeUsers().source }), /sessions need a secret/);

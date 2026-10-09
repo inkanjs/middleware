@@ -29,6 +29,24 @@ const TAGS = ["auth"];
 
 const fn = (v) => typeof v === "function";
 
+/**
+ * What the brute-force counter of an address counts by: an IPv4 address itself (also when
+ * mapped into IPv6), an IPv6 address by its /64, since one client usually holds a whole /64
+ * and could otherwise take a fresh address for every guess.
+ */
+export function ipBucket(ip) {
+  if (typeof ip !== "string" || ip === "") return "local";
+  const bare = ip.replace(/^\[|\]$/g, "").split("%")[0];
+  if (!bare.includes(":")) return bare;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(bare);
+  if (mapped) return mapped[1];
+  const [head, tail] = bare.split("::");
+  const h = head ? head.split(":") : [];
+  const t = tail === undefined ? [] : tail ? tail.split(":") : [];
+  const parts = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return parts.slice(0, 4).map((x) => (Number.parseInt(x || "0", 16) || 0).toString(16)).join(":") + "::/64";
+}
+
 function seconds(value, what) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.floor(value);
   const m = typeof value === "string" ? /^(\d+)([smhd])$/.exec(value) : null;
@@ -217,10 +235,13 @@ function configure(o) {
   }
 
   if (o.bruteForce !== false) {
-    const b = { freeAttempts: 5, ipFreeAttempts: 50, maxDelay: 900, window: 900, ...(o.bruteForce ?? {}) };
-    for (const k of ["freeAttempts", "ipFreeAttempts", "maxDelay", "window"]) {
+    const b = { freeAttempts: 5, loginFreeAttempts: 100, ipFreeAttempts: 50, maxDelay: 900, window: 900, ...(o.bruteForce ?? {}) };
+    for (const k of ["freeAttempts", "loginFreeAttempts", "ipFreeAttempts", "maxDelay", "window"]) {
       if (!Number.isInteger(b[k]) || b[k] < 1) throw new TypeError(`auth: bruteForce.${k} must be a positive integer`);
     }
+    // counters live apart from sessions and refresh tokens: a flood of made-up logins fills
+    // (and evicts within) this store only
+    b.store = checkStore(b.store ?? memoryStore({ clock, max: 50_000 }), "bruteForce.store");
     c.bruteForce = b;
   }
   return c;
@@ -556,27 +577,53 @@ function install(app, c) {
 
   // ---- login, tokens, TOTP ----
 
-  const guard = c.bruteForce && {
-    /** Counts an attempt for the login and the address; 429 while either is locked. */
+  // Brute force. Three counters, in their own store: the client's address (an IPv6 address by
+  // its /64, which one client usually has whole), the login from that address, and the login
+  // from everywhere. The login from one address locks fast (freeAttempts); the login as such
+  // only after many more failures (loginFreeAttempts), which takes many addresses, so a
+  // stranger who knows a login cannot lock its owner out from one machine. Each attempt is
+  // counted before the password is checked, so a burst of parallel guesses cannot all slip
+  // through; a success gives the address its attempt back and clears the login's counters.
+  const bf = c.bruteForce;
+  const guard = bf && {
+    keysFor(login, ip) {
+      const l = hashToken(login.trim().toLowerCase());
+      const a = hashToken(ipBucket(ip));
+      return { ip: ["b:i:" + a, bf.ipFreeAttempts], loginIp: ["b:li:" + hashToken(l + "\n" + a), bf.freeAttempts], login: ["b:l:" + l, bf.loginFreeAttempts] };
+    },
+    /** Counts an attempt, the address first: 429 while one is locked, and nothing after a locked one is written. */
     async attempt(keyList) {
       const now = clock();
       let until = 0;
       for (const [key, free] of keyList) {
         if (until) break;
         await lock(key, async () => {
-          const rec = (await store.get(key)) ?? { n: 0, until: 0 };
+          const rec = (await bf.store.get(key)) ?? { n: 0, until: 0 };
           if (rec.until > now) return void (until = rec.until);
           rec.n += 1;
           const over = rec.n - free;
-          const delay = over > 0 ? Math.min(2 ** (over - 1), c.bruteForce.maxDelay) : 0;
+          const delay = over > 0 ? Math.min(2 ** (over - 1), bf.maxDelay) : 0;
           rec.until = delay ? now + delay * 1000 : 0;
-          await store.set(key, rec, c.bruteForce.window + delay);
+          await bf.store.set(key, rec, bf.window + delay);
         });
       }
       if (until) {
         const wait = Math.max(1, Math.ceil((until - now) / 1000));
         throw new HttpProblem(429, "too-many-attempts", `Too many failed logins; try again in ${wait}s`, {}, { "retry-after": String(wait) });
       }
+    },
+    /** A success: the address gets its attempt back, the login's counters go. */
+    async succeeded(keys) {
+      const [ipKey, free] = keys.ip;
+      await lock(ipKey, async () => {
+        const rec = await bf.store.get(ipKey);
+        if (!isObject(rec) || typeof rec.n !== "number") return;
+        rec.n = Math.max(0, rec.n - 1);
+        if (rec.n <= free) rec.until = 0;
+        await bf.store.set(ipKey, rec, bf.window);
+      });
+      await bf.store.delete(keys.loginIp[0]);
+      await bf.store.delete(keys.login[0]);
     },
   };
 
@@ -594,8 +641,8 @@ function install(app, c) {
 
   async function passwordLogin(ctx, body) {
     const { login, password, totp: code } = body;
-    const loginKey = "b:l:" + hashToken(login.trim().toLowerCase());
-    if (guard) await guard.attempt([[loginKey, c.bruteForce.freeAttempts], ["b:i:" + hashToken(ctx.ip ?? "local"), c.bruteForce.ipFreeAttempts]]);
+    const counters = guard && guard.keysFor(login, ctx.ip);
+    if (guard) await guard.attempt([counters.ip, counters.loginIp, counters.login]);
     const user = await users.find(login);
     const stored = isObject(user) && typeof user.passwordHash === "string" && user.passwordHash ? user.passwordHash : undefined;
     // an unknown login, or one without a password, costs a whole scrypt run too
@@ -605,7 +652,7 @@ function install(app, c) {
       if (!code) throw new HttpProblem(401, "totp-required", "This account needs the code of its authenticator app");
       if ((await useTotpCode(user, user.totpSecret, code)) === null) throw new HttpProblem(401, "totp-invalid", "The code is wrong or was used already");
     }
-    if (guard) await store.delete(loginKey);
+    if (guard) await guard.succeeded(counters);
     if (fn(users.updatePasswordHash) && needsRehash(stored, c.password)) {
       await users.updatePasswordHash(user.id, await hashPassword(password, c.password));
     }
