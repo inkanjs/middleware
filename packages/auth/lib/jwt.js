@@ -415,11 +415,16 @@ function parseJwks(body) {
  * once per `cooldownMs`, so rotated keys are picked up and unknown kids cannot flood the
  * provider. Only RSA, EC and Ed25519 keys meant for signatures are taken, and a key only
  * verifies the algorithm its kty, curve and (when given) alg allow.
+ *
+ * When the provider cannot be reached once the cache is over, the keys it had are used for up
+ * to `staleMs` more (an hour), and a failed fetch is not tried again for `cooldownMs`: an
+ * outage of the provider neither locks everybody out at once nor makes every request wait
+ * for a timeout.
  */
 export function jwksSource(url, options = {}) {
   const target = secureUrl(url, "jwksSource url").href;
-  const { cacheMs = 10 * 60_000, cooldownMs = 30_000, timeoutMs = 5000, fetch = globalThis.fetch, clock = Date.now } = options;
-  for (const [name, v] of Object.entries({ cacheMs, cooldownMs, timeoutMs })) {
+  const { cacheMs = 10 * 60_000, cooldownMs = 30_000, staleMs = 60 * 60_000, timeoutMs = 5000, fetch = globalThis.fetch, clock = Date.now } = options;
+  for (const [name, v] of Object.entries({ cacheMs, cooldownMs, staleMs, timeoutMs })) {
     if (typeof v !== "number" || !(v >= 0)) throw new TypeError(`jwksSource: ${name} must be a number of milliseconds`);
   }
   if (typeof fetch !== "function") throw new TypeError("jwksSource: no fetch available");
@@ -428,6 +433,9 @@ export function jwksSource(url, options = {}) {
   let keys = null;
   let fetchedAt = -Infinity;
   let attemptedAt = -Infinity;
+  let failedAt = -Infinity;
+  /** @type {unknown} */
+  let lastError;
   /** @type {Promise<void> | null} */
   let inflight = null;
 
@@ -444,6 +452,10 @@ export function jwksSource(url, options = {}) {
         if (!ok) throw new AuthError("jwks-unavailable", `JWKS answered ${status}`, { status: 502 });
         keys = parseJwks(body);
         fetchedAt = clock();
+      } catch (err) {
+        failedAt = clock();
+        lastError = err;
+        throw err;
       } finally {
         inflight = null;
       }
@@ -462,7 +474,19 @@ export function jwksSource(url, options = {}) {
     /** The verification key for a token header; rejects when no key fits. */
     async getKey(header) {
       if (!isObject(header) || typeof header.alg !== "string") throw malformed("header has no alg");
-      if (keys === null || clock() - fetchedAt >= cacheMs) await load();
+      if (keys === null || clock() - fetchedAt >= cacheMs) {
+        const usable = () => keys !== null && clock() - fetchedAt < cacheMs + staleMs;
+        if (clock() - failedAt < cooldownMs) {
+          // failed a moment ago: no new try yet, the old keys while they last, else that failure
+          if (!usable()) throw lastError;
+        } else {
+          try {
+            await load();
+          } catch (err) {
+            if (!usable()) throw err;
+          }
+        }
+      }
       let found = pick(header);
       if (!found && clock() - attemptedAt >= cooldownMs) {
         await load();

@@ -83,8 +83,10 @@ export function signJwt(payload: JwtPayload, options: SignOptions): string;
 export interface JwksOptions {
   /** How long fetched keys are used before fetching again. Default 10 minutes. */
   cacheMs?: number;
-  /** Minimum time between fetches caused by an unknown kid. Default 30 seconds. */
+  /** Minimum time between fetches caused by an unknown kid, and after a failed fetch. Default 30 seconds. */
   cooldownMs?: number;
+  /** How long the last keys are still used past cacheMs while the provider cannot be reached. Default 1 hour. */
+  staleMs?: number;
   /** Default 5 seconds. */
   timeoutMs?: number;
   fetch?: typeof globalThis.fetch;

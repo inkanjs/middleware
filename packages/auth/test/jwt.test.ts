@@ -443,6 +443,42 @@ describe("jwksSource", () => {
     assert.equal(server.hits.length - before, 2); // known kids come from the cache
   });
 
+  test("the provider down after the cache is over: the last keys for staleMs, and failures wait out the cooldown", async () => {
+    let up = true;
+    let hits = 0;
+    const flaky = await serve((_req, _body, res) => {
+      hits++;
+      if (!up) return json(res, 503, {});
+      json(res, 200, { keys: [pubJwk(k1.publicKey, "k1")] });
+    });
+    try {
+      let t = 0;
+      const jwks = jwksSource(`${flaky.url}/jwks`, { clock: () => t, cacheMs: 60_000, cooldownMs: 30_000, staleMs: 600_000 });
+      const verify = () => verifyJwt(sign(k1.privateKey, "k1"), { jwks, algorithms: ["ES256"] });
+      await verify();
+      up = false;
+      t = 61_000;
+      assert.ok(await verify(), "the cache is over and the provider down: the old keys still verify");
+      assert.equal(hits, 2);
+      t = 70_000;
+      await verify();
+      assert.equal(hits, 2, "within the cooldown after a failure, no new try");
+      t = 100_000;
+      await verify();
+      assert.equal(hits, 3, "after the cooldown, one more try");
+      t = 60_000 + 600_000 + 1;
+      await assert.rejects(verify(), code("jwks-unavailable"));
+      const n = hits;
+      await assert.rejects(verify(), code("jwks-unavailable"));
+      assert.equal(hits, n, "past staleMs the failure is answered at once, without waiting on the provider");
+      up = true;
+      t += 30_000;
+      assert.ok(await verify(), "back up: fetched again");
+    } finally {
+      await flaky.close();
+    }
+  });
+
   test("keys are refetched once cacheMs is over", async () => {
     const server = await serverP;
     published = [pubJwk(k1.publicKey, "k1")];

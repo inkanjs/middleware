@@ -178,7 +178,9 @@ cannot happen, say so with `unsafeSkipIssuer: true` or `unsafeSkipAudience: true
 The user is `users.byId(claims.sub)`, or what `jwt.user(claims, ctx)` makes of the claims
 (for an API without a user table). A shared HS secret works too: `{ secret, algorithms: ["HS256"], issuer, audience }`.
 The algorithm list is required, `none` is never accepted, and a key never works for another
-algorithm family. If the provider's keys cannot be fetched, the answer is a 503.
+algorithm family. If the provider's keys cannot be fetched, the last ones are used for up to an hour
+(`jwksOptions.staleMs`), and a failed fetch waits `cooldownMs` (30 s) before the next try;
+without any usable keys the answer is a 503 at once.
 
 ### Issuing your own
 
