@@ -206,7 +206,7 @@ export function idempotency(options = {}) {
         if (required) op.responses["400"] ??= problem("The Idempotency-Key header is missing (`idempotency-key-missing`)");
       });
     },
-    { name: "idempotency", shared: true },
+    { name: "idempotency", shared: true, inkan: ">=0.7.0 <0.8.0" },
   );
 }
 
