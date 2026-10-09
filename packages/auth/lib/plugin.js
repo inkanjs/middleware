@@ -468,7 +468,10 @@ function install(app, c) {
       if (c.origins.has(origin)) return true;
       if (site !== undefined || origin === "null") return false;
       try {
-        return new URL(origin).host === ctx.url.host;
+        // the scheme too: a page on http://example.com is not https://example.com
+        const u = new URL(origin);
+        const own = ctx.url;
+        return u.host === own.host && u.protocol === own.protocol;
       } catch {
         return false;
       }

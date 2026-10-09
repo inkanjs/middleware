@@ -91,8 +91,8 @@ auth({ secret, users, session: { cookie: "__Host-sid", maxAge: "12h", store: red
 ### CSRF
 
 Cookie-authenticated requests with an unsafe method (anything but GET, HEAD, OPTIONS) must come
-from your own pages: `Sec-Fetch-Site: same-origin`, or an `Origin` whose host is the request's
-host or one of `origins`. Without both headers such a request is refused. This holds for every
+from your own pages: `Sec-Fetch-Site: same-origin`, or an `Origin` whose scheme and host are the request's
+or one of `origins`. Without both headers such a request is refused. This holds for every
 credential a browser sends by itself: the session cookie, and an API key scheme with
 `in: "cookie"`. Bearer, basic and API keys in a header or the query are never checked: a
 browser does not add those by itself. `POST /auth/login`

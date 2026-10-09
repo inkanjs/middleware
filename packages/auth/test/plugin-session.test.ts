@@ -206,6 +206,16 @@ test("CSRF: a cookie-authenticated POST from another origin is a 403", async () 
   assert.equal((await app.inject({ url: "/account", headers: withSid(sid, { origin: "https://evil.example" }) })).status, 200);
 });
 
+test("CSRF: without Sec-Fetch-Site, Origin must match the scheme as well as the host", async () => {
+  const { app } = makeApp();
+  const { sid } = await login(app);
+  const post = (origin: string) => app.inject({ method: "POST", url: "/account", headers: withSid(sid, { origin }) });
+  assert.equal((await post("http://localhost")).status, 200);
+  const other = await post("https://localhost");
+  assert.equal(other.status, 403, "another scheme is another origin");
+  assert.equal(other.body.type, "csrf");
+});
+
 test("CSRF: configured origins are let through", async () => {
   const { app } = makeApp({ origins: ["https://admin.example"] });
   const { sid } = await login(app);
