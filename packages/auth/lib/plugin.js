@@ -94,6 +94,7 @@ function configure(o) {
     oauth: undefined,
     bruteForce: undefined,
     routes: o.routes === false ? false : String(o.routes ?? "/auth").replace(/\/+$/, ""),
+    example: undefined,
   };
   if (!fn(c.roles)) throw new TypeError("auth: roles must be a function of the user");
   c.publicUser = o.publicUser ?? ((u) => ({ id: u.id, roles: [...c.roles(u)] }));
@@ -102,6 +103,14 @@ function configure(o) {
     ? t.object({}).passthrough()
     : t.object({ id: t.union(t.string(), t.number()), roles: t.array(t.string()) }).named("AuthUser");
   if (c.routes !== false && !/^(\/[\w.~-]+)*$/.test(c.routes)) throw new TypeError("auth: routes must be a path like /auth, or false");
+
+  if (o.example !== undefined) {
+    const e = o.example;
+    if (!isObject(e) || typeof e.login !== "string" || !e.login || typeof e.password !== "string" || !e.password) {
+      throw new TypeError("auth: example needs the login and password of an account for inkan check");
+    }
+    c.example = { login: e.login, password: e.password };
+  }
 
   for (const origin of o.origins ?? []) {
     let u;
@@ -881,6 +890,14 @@ function install(app, c) {
     const userSchemes = [...(session ? [c.sessionScheme] : []), ...(c.jwt ? ["bearer"] : [])];
     const unknownLogin = { name: "an unknown login", body: { login: "nobody@example.com", password: "not-the-password" }, status: 401, expect: { type: "invalid-credentials" } };
     const noCredentials = { name: "without credentials", status: 401, expect: { type: "unauthorized" } };
+    // With an example account, inkan check logs in and goes on with the session cookie in its jar.
+    const loggedIn = "a known login";
+    const afterLogin = session && c.example && fn(users.find) ? `POST ${app.prefix}${base}/login > ${loggedIn}` : undefined;
+    const loginExamples = afterLogin
+      ? [unknownLogin, { name: loggedIn, body: { login: c.example.login, password: c.example.password }, status: 200, keep: { session: `cookies.${session.cookie}` } }]
+      : [unknownLogin];
+    // an unsafe request with the cookie says it comes from our own pages, as a browser would (CSRF)
+    const afterLoginExample = (status, headers) => (afterLogin ? [{ name: "after logging in", after: afterLogin, status, ...(headers && { headers }) }] : []);
 
     if (session && fn(users.find)) {
       app.post(
@@ -892,7 +909,7 @@ function install(app, c) {
           body: loginBody,
           response: { 200: t.object({ user: c.userSchema }), 401: P, 403: P, 429: P, 503: P },
           meta: { [SETS_SESSION]: true },
-          examples: [unknownLogin],
+          examples: loginExamples,
         },
         async (ctx) => {
           const user = await passwordLogin(ctx, ctx.body);
@@ -911,7 +928,7 @@ function install(app, c) {
           tags: TAGS,
           body: t.object({ refreshToken: t.string().max(512).optional() }).optional(),
           response: { 204: t.empty(), 403: P },
-          examples: [{ name: "without a session", status: 204 }],
+          examples: [{ name: "without a session", status: 204 }, ...afterLoginExample(204, { "sec-fetch-site": "same-origin" })],
         },
         async (ctx) => {
           if (ctx.body?.refreshToken && c.issue) await revokeRefresh(ctx.body.refreshToken);
@@ -924,7 +941,13 @@ function install(app, c) {
     if (userSchemes.length) {
       app.get(
         `${base}/me`,
-        { summary: "Who is logged in", tags: TAGS, security: userSchemes, response: { 200: c.userSchema, 401: P }, examples: [noCredentials] },
+        {
+          summary: "Who is logged in",
+          tags: TAGS,
+          security: userSchemes,
+          response: { 200: c.userSchema, 401: P },
+          examples: [noCredentials, ...afterLoginExample(200)],
+        },
         (ctx) => c.publicUser(stateOf(ctx).user),
       );
     }

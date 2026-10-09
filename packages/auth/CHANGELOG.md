@@ -8,6 +8,10 @@
   `onRequest`, before the input is read. A public route no longer looks the user up (no store,
   no `users.byId`); `meta.auth.optional` gives it the user. A session cookie signed by us
   still puts an unsafe request to a public route through the CSRF check.
+- The `/auth/*` routes reach the typed client: `client<typeof app>` knows `POST /auth/login`
+  and the rest, under `routes` and a register prefix (`AuthRoutes`, `PublicUser`).
+- `example: { login, password }`: `inkan check` logs in with that account, keeps the session
+  cookie, and calls `/me` and `/logout` with it.
 - **The inkan plugin**, `auth(options)`, shared: it verifies the credentials every route asks
   for in `security` (session cookie, bearer JWT, API key, basic) and puts `ctx.user` and
   `ctx.auth` on the context, typed from `users.find`. Wrong credentials are a 401

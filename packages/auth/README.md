@@ -316,7 +316,8 @@ then a read and a write, atomic only within one process.
 | `basic`        | off                | `{ verify(user, password, ctx), realm }`. |
 | `totp`         | off                | `true` or `{ issuer, window: 1, account(user), reauth: "5m" }`. |
 | `oauth`        | off                | See above. |
-| `routes`       | `"/auth"`          | Where the routes go; `false` for none. |
+| `routes`       | `"/auth"`          | Where the routes go; `false` for none. They reach `client<typeof app>`. |
+| `example`      | none               | `{ login, password }` of a test account (no TOTP): `inkan check` logs in with it, then calls `/me` and `/logout` with the session cookie. |
 | `origins`      | `[]`               | Other origins of yours for the CSRF check. |
 | `store`        | `memoryStore()`    | `get`, `set(key, value, ttl)`, `delete`, and atomic `take`, `add` when shared. |
 | `publicUser`   | `{ id, roles }`    | What `/login` and `/me` show. |

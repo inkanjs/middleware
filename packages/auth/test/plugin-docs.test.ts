@@ -86,3 +86,22 @@ test("inkan check passes with failureRedirect too, and under a prefix", async ()
   const start = await app.inject({ url: "/api/auth/oauth/github" });
   assert.equal(new URL(start.headers.location).searchParams.get("redirect_uri"), "https://app.example/api/auth/oauth/github/callback");
 });
+
+test("inkan check with an example account: logs in, then /me and /logout with the session cookie", async () => {
+  for (const prefix of ["", "/api"]) {
+    const users = makeUsers();
+    const plugin = auth<User>({ secret: SECRET, users: users.source, password: FAST, example: { login: "bob@example.com", password: "correct horse" } });
+    const app = inkan({ log: false }).register(plugin, { prefix });
+    const report = await app.check();
+    assert.ok(report.ok, JSON.stringify(report.results.filter((r) => !r.ok)));
+    const names = report.results.map((r) => `${r.method} ${r.path} > ${r.example}`);
+    for (const name of [`POST ${prefix}/auth/login > a known login`, `GET ${prefix}/auth/me > after logging in`, `POST ${prefix}/auth/logout > after logging in`]) {
+      assert.ok(names.includes(name), `${name} in ${names.join(", ")}`);
+    }
+  }
+  // a wrong example password is a failing check, so the chain really logs in
+  const wrong = inkan({ log: false }).register(auth<User>({ secret: SECRET, users: makeUsers().source, password: FAST, example: { login: "bob@example.com", password: "nope" } }));
+  const failed = (await wrong.check()).results.filter((r) => !r.ok).map((r) => `${r.method} ${r.path} > ${r.example}`);
+  assert.ok(failed.includes("POST /auth/login > a known login"), failed.join(", "));
+  assert.throws(() => auth<User>({ secret: SECRET, users: makeUsers().source, example: { login: "x" } as never }), /example needs/);
+});
