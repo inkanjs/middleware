@@ -51,3 +51,31 @@ test("an explicit generic, and meta.auth is typed", () => {
   );
   assert.ok(app);
 });
+
+test("the plugin's routes reach the typed client: POST /auth/login, under a prefix too", async () => {
+  const { client } = await import("@vxnsin/inkan/client");
+  const plugin = auth({ secret: SECRET, users: { find: async (login: string) => db.get(login), byId: async (id: string) => db.get(id) } });
+  const app = inkan({ log: false }).register(plugin);
+  const api = client<typeof app>("http://localhost:1");
+  type LoginArgs = Parameters<typeof api.post<"/auth/login">>;
+  expectType<Equal<LoginArgs[0], "/auth/login">>();
+  const login = () => api.post("/auth/login", { body: { login: "ada", password: "x" } });
+  type LoginAnswer = Awaited<ReturnType<typeof login>>;
+  const check = (res: LoginAnswer) => {
+    if (res.ok) expectType<Equal<typeof res.data.user.roles, string[]>>();
+    else if (res.status === 429) expectType<Equal<typeof res.problem.status, number>>();
+  };
+  // @ts-expect-error login needs a password
+  const bad = () => api.post("/auth/login", { body: { login: "ada" } });
+  // @ts-expect-error no such route
+  const none = () => api.post("/auth/nope", {});
+  const me = () => api.get("/auth/me");
+
+  const prefixed = inkan({ log: false }).register(auth({ secret: SECRET, users: { byId: async (id: string) => db.get(id) }, routes: "/session" }), { prefix: "/api" });
+  const p = client<typeof prefixed>("http://localhost:1");
+  const login2 = () => p.post("/api/session/login", { body: { login: "ada", password: "x" } });
+  // @ts-expect-error routes: false defines none
+  const off = () => client<typeof offApp>("http://localhost:1").get("/auth/me");
+  const offApp = inkan({ log: false }).register(auth({ secret: SECRET, users: { byId: async (id: string) => db.get(id) }, routes: false }));
+  assert.ok([check, bad, none, me, login2, off]);
+});

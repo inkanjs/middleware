@@ -1,4 +1,4 @@
-import type { Context, Plugin, Schema, Security } from "@vxnsin/inkan";
+import type { Context, Plugin, ProblemBody, Schema, Security } from "@vxnsin/inkan";
 import type { AsymmetricKey, Duration, JwksOptions, JwtAlgorithm, JwtPayload, Secret } from "./lib/jwt.js";
 import type { OAuthTokens, OAuthUser, Provider } from "./lib/oauth.js";
 import type { ScryptParams } from "./lib/password.js";
@@ -158,6 +158,12 @@ export interface AuthOptions<U extends AuthUser> {
   oauth?: OAuthOptions<U>;
   /** Where the routes go; false for none. Default "/auth". */
   routes?: string | false;
+  /**
+   * An account `inkan check` logs in with: POST /login then gets an example that logs in
+   * (and keeps the session cookie), and /me and /logout examples that run after it with
+   * that cookie. A test account without TOTP; leave it out in production.
+   */
+  example?: { login: string; password: string };
   /** Origins besides the request's own whose cookie requests are not CSRF: "https://admin.example". */
   origins?: readonly string[];
   /** What /login and /me show of a user. Default { id, roles }. */
@@ -196,7 +202,47 @@ export interface AuthContext<U> {
   logout(): Promise<void>;
 }
 
-export type AuthPlugin<U> = Plugin<{}, any, { user: U | undefined; auth: AuthContext<U> }> & {
+/** What /login and /me answer of a user: `{ id, roles }`, or what `publicUser` makes. */
+export type PublicUser = { id: string | number; roles: string[]; [field: string]: unknown };
+
+type Problem = Schema<ProblemBody>;
+type Def<B, R, P = {}, Q = Record<string, string | string[]>> = { params: P; query: Q; body: B; headers: Record<string, string | undefined>; response: R };
+type LoginBody = { login: string; password: string; totp?: string };
+type Tokens = { accessToken: string; tokenType: "Bearer"; expiresIn: number; refreshToken: string };
+
+/**
+ * The routes the plugin defines under `Base`, for the typed client: after
+ * `app.register(auth(…))`, `client<typeof app>` knows `POST /auth/login` and the rest.
+ * Which of them exist depends on the options (`token` needs `jwt.issue`, `totp/*` needs `totp`,
+ * `oauth/*` needs `oauth`); one that does not is a 404.
+ */
+export type AuthRoutes<Base extends string> = {
+  [K in `POST ${Base}/login`]: Def<LoginBody, { 200: Schema<{ user: PublicUser }>; 401: Problem; 403: Problem; 429: Problem; 503: Problem }>;
+} & { [K in `POST ${Base}/logout`]: Def<{ refreshToken?: string } | undefined, { 204: Schema<undefined>; 403: Problem }> } & {
+  [K in `GET ${Base}/me`]: Def<undefined, { 200: Schema<PublicUser>; 401: Problem }>;
+} & { [K in `POST ${Base}/token`]: Def<LoginBody, { 200: Schema<Tokens>; 401: Problem; 429: Problem; 503: Problem }> } & {
+  [K in `POST ${Base}/token/refresh`]: Def<{ refreshToken: string }, { 200: Schema<Tokens>; 401: Problem }>;
+} & {
+  [K in `POST ${Base}/totp/setup`]: Def<{ password?: string } | undefined, { 200: Schema<{ secret: string; otpauthUrl: string }>; 401: Problem; 403: Problem; 409: Problem; 429: Problem }>;
+} & {
+  [K in `POST ${Base}/totp/confirm`]: Def<{ code: string; password?: string }, { 200: Schema<{ recoveryCodes: string[] }>; 400: Problem; 401: Problem; 403: Problem; 409: Problem; 429: Problem }>;
+} & {
+  [K in `POST ${Base}/totp/disable`]: Def<{ code: string; password?: string }, { 204: Schema<undefined>; 400: Problem; 401: Problem; 403: Problem; 409: Problem; 429: Problem }>;
+} & { [K in `GET ${Base}/oauth/:provider`]: Def<undefined, { 302: Schema<undefined> }, { provider: string }> } & {
+  [K in `GET ${Base}/oauth/:provider/callback`]: Def<
+    undefined,
+    { 302: Schema<undefined>; 400: Problem; 401: Problem; 403: Problem; 502: Problem },
+    { provider: string },
+    { code?: string; state?: string; error?: string }
+  >;
+};
+
+export type AuthPlugin<U, Base extends string | false = "/auth"> = Plugin<
+  {},
+  any,
+  { user: U | undefined; auth: AuthContext<U> },
+  Base extends string ? AuthRoutes<Base> : {}
+> & {
   /** The session cookie as a security scheme: `{ security: auth.session }`. Undefined with session: false. */
   readonly session: Security;
 };
@@ -205,4 +251,4 @@ export type AuthPlugin<U> = Plugin<{}, any, { user: U | undefined; auth: AuthCon
  * Authentication for inkan. Register it on the app (it is shared: it acts on the routes
  * around it), then say per route what it takes with `security` and `meta.auth.roles`.
  */
-export function auth<U extends AuthUser = AuthUser>(options: AuthOptions<U>): AuthPlugin<U>;
+export function auth<U extends AuthUser = AuthUser, const Base extends string | false = "/auth">(options: AuthOptions<U> & { routes?: Base | (string & {}) | false }): AuthPlugin<U, Base>;
