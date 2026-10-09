@@ -63,13 +63,19 @@ export type ProxyOptions = {
    * moved as for `"strip"`); an empty string drops it.
    */
   cookieDomain?: "strip" | "keep" | ((domain: string) => string);
-  /** The agent for the upstream connections (keep-alive, TLS options). Default node's global one. */
+  /**
+   * The agent for the upstream connections (keep-alive, TLS options): `new https.Agent({ ca })`
+   * for an internal CA or a pinned one. Never `rejectUnauthorized: false`. Default node's global one.
+   */
   agent?: Agent | false;
   /** For `proxy()`: keep its routes out of the docs and the OpenAPI document. Default true. */
   hidden?: boolean;
   /** For `proxy()`: `meta` for its routes, as other plugins read it in `ctx.route.meta`. */
   meta?: RouteMeta;
-  /** Called with the error behind a 502, for the log. */
+  /**
+   * Called with the error behind a 502, for the log. The raw error: it can name the
+   * upstream's address, so never send it to the client.
+   */
   onError?: (err: unknown, ctx: Ctx) => void;
 };
 

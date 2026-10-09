@@ -88,6 +88,16 @@ with `rewrite`, for `to`'s path + `rewrite(ctx.path)`.
   ones are still dropped unless `trustForwarded`. The upstream should trust them only from
   this proxy. A Host header no URL can hold is a 400 `bad-host`.
 - Credentials for the upstream go into `headers`, not into `to`, which refuses them.
+- **Answer size is not limited.** The upstream's answer streams through as long as it lasts
+  and whatever its size: nothing is buffered, so memory is safe, but bandwidth and time are
+  the upstream's to spend. Bound the time with `deadline`; proxy only to upstreams you run.
+- **TLS.** An `https:` upstream's certificate is checked against node's CAs as usual. For an
+  internal CA or to pin one, give `agent: new https.Agent({ ca })` (plus `servername` if the
+  name differs). Never set `rejectUnauthorized: false`: anyone on the path could then read and
+  change every request, credentials included.
+- **`onError` gets the raw error**, which can hold the upstream's address and port
+  (`connect ECONNREFUSED 10.0.3.7:8080`). Log it on your side; never put it into an answer.
+  The 502 the client gets names nothing.
 
 ## How it behaves
 

@@ -24,3 +24,5 @@
   `Domain`, its `Path` moves under the prefix.
 - `deadline`: the whole exchange, body included, bounded (504 `gateway-timeout` before the
   answer, the answer cut during it); `timeout` is documented as the idle timeout it is.
+- Docs: answers are not size-limited, TLS with a pinned CA through `agent`, `onError` gets
+  the raw error.
