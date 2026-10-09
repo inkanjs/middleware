@@ -30,13 +30,16 @@ function same(a, b) {
 function keysOf(secret) {
   const secrets = [secret].flat();
   if (!secrets.length) throw new TypeError("session: give a secret");
-  for (const s of secrets) {
-    if (typeof s !== "string" || s.length < MIN_SECRET) {
-      throw new TypeError(`session: every secret needs at least ${MIN_SECRET} characters; make one with \`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"\``);
+  const list = secrets.map((s) => {
+    // counted in bytes, as the key is made of bytes: a string as UTF-8, or the bytes themselves
+    const bytes = typeof s === "string" ? Buffer.from(s, "utf8") : s instanceof Uint8Array ? Buffer.from(s) : null;
+    if (!bytes || bytes.length < MIN_SECRET) {
+      throw new TypeError(`session: every secret needs at least ${MIN_SECRET} bytes; make one with \`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"\``);
     }
-  }
+    return bytes;
+  });
   const derive = (s, info) => Buffer.from(hkdfSync("sha256", s, "inkan-session", info, 32));
-  return secrets.map((s) => ({ sign: derive(s, "sign"), seal: derive(s, "encrypt") }));
+  return list.map((s) => ({ sign: derive(s, "sign"), seal: derive(s, "encrypt") }));
 }
 
 /**
@@ -103,7 +106,7 @@ export function memoryStore({ max = 10_000 } = {}) {
     },
     set(id, data, ttl) {
       map.delete(id); // to the end: the most recently used goes last
-      map.set(id, { data, until: Date.now() + ttl });
+      map.set(id, { data, until: Date.now() + ttl * 1000 }); // ttl in seconds
       while (map.size > max) map.delete(map.keys().next().value);
     },
     delete(id) {
@@ -123,12 +126,14 @@ export class Session {
   #changed = false;
   #destroyed = false;
   #origin; // the id the request came with, for the store to forget when it changes
+  #created; // milliseconds: when the session began, or was last regenerated
 
-  constructor(data, id, isNew) {
+  constructor(data, id, isNew, created = Date.now()) {
     this.#data = data;
     this.#id = id;
     this.#isNew = isNew;
     this.#origin = isNew ? undefined : id;
+    this.#created = created;
   }
   /** A random id, 256 bits, base64url; a new one after `regenerate()`. */
   get id() {
@@ -179,6 +184,7 @@ export class Session {
    */
   regenerate() {
     this.#id = newId();
+    this.#created = Date.now(); // a sign-in starts the absolute lifetime anew
     this.#changed = true;
     return this;
   }
@@ -186,12 +192,17 @@ export class Session {
   destroy() {
     this.#data = Object.create(null);
     this.#id = newId(); // whatever is set afterwards is a new session
+    this.#created = Date.now();
     this.#destroyed = true;
     this.#changed = true;
   }
   /** @internal The id the request came with; undefined for a new session. */
   _origin() {
     return this.#origin;
+  }
+  /** @internal When it began, in milliseconds. */
+  _created() {
+    return this.#created;
   }
 }
 
@@ -210,13 +221,16 @@ const dataOf = (d) => Object.assign(Object.create(null), d && typeof d === "obje
  * @param {import("./index.d.ts").SessionOptions} options
  */
 export function session(options) {
-  const { secret, encrypt = false, store, rolling = false } = options ?? {};
+  const { secret, encrypt = false, store, rolling = false, maxLifetime } = options ?? {};
   const keys = keysOf(secret);
   const c = options.cookie ?? {};
   const name = c.name ?? "sid";
   const maxAge = c.maxAge ?? 86_400;
   if (!(maxAge > 0)) throw new TypeError("session: cookie.maxAge is in seconds and has to be more than 0");
-  const ttl = maxAge * 1000;
+  if (maxLifetime !== undefined && !(maxLifetime > 0)) throw new TypeError("session: maxLifetime is in seconds and has to be more than 0");
+  /** Seconds this session may still last: maxAge, and never past maxLifetime after it began. */
+  const lifeOf = (s) => (maxLifetime === undefined ? maxAge : Math.min(maxAge, Math.floor((s._created() + maxLifetime * 1000 - Date.now()) / 1000)));
+  const tooOld = (created) => maxLifetime !== undefined && Date.now() - created >= maxLifetime * 1000;
   const cookieOptions = {
     path: c.path ?? "/",
     domain: c.domain,
@@ -236,7 +250,9 @@ export function session(options) {
     if (store) return text; // the id
     const p = parse(text);
     if (!p || typeof p.i !== "string" || !(p.e > Date.now())) return;
-    return new Session(dataOf(p.d), p.i, false);
+    const created = typeof p.c === "number" ? p.c : 0;
+    if (tooOld(created)) return;
+    return new Session(dataOf(p.d), p.i, false, created);
   }
 
   return plugin(
@@ -247,8 +263,11 @@ export function session(options) {
         app.onRequest(async (ctx) => {
           const id = fromCookie(ctx.cookies[name]);
           if (!id) return;
-          const data = await store.get(id);
-          if (data !== undefined && data !== null) ctx.session = new Session(dataOf(data), id, false);
+          const rec = await store.get(id);
+          if (rec === undefined || rec === null || typeof rec !== "object") return;
+          const created = typeof rec.c === "number" ? rec.c : 0;
+          if (tooOld(created)) return void (await store.delete(id));
+          ctx.session = new Session(dataOf(rec.d), id, false, created);
         });
       }
 
@@ -264,18 +283,20 @@ export function session(options) {
           return;
         }
         if (s.isNew && !s.changed) return; // rolling, but there is nothing to keep
+        const life = lifeOf(s);
+        if (life < 1) return; // at the end of its lifetime: not written again
         let value;
         if (store) {
           if (origin && origin !== s.id) await store.delete(origin); // regenerated: the old id is worth nothing now
-          await store.set(s.id, s.toJSON(), ttl);
+          await store.set(s.id, { d: s.toJSON(), c: s._created() }, life); // ttl in seconds
           value = cookie.write(s.id);
         } else {
-          value = cookie.write(JSON.stringify({ i: s.id, e: Date.now() + ttl, d: s.toJSON() }));
+          value = cookie.write(JSON.stringify({ i: s.id, e: Date.now() + life * 1000, c: s._created(), d: s.toJSON() }));
         }
         if (name.length + 1 + value.length > MAX_COOKIE) {
           throw new Error(`session: the cookie would have ${name.length + 1 + value.length} bytes, more than the ${MAX_COOKIE} bytes browsers keep; keep less in it, or use a store`);
         }
-        (out.cookies ??= []).push(serializeCookie(name, value, cookieOptions));
+        (out.cookies ??= []).push(serializeCookie(name, value, { ...cookieOptions, maxAge: life }));
         // an answer that sets a session cookie is for this client alone
         if (!out.headers["cache-control"]) out.headers["cache-control"] = "private, no-store";
       });

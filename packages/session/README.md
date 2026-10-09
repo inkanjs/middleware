@@ -55,7 +55,7 @@ write the three methods against Redis or your database:
 ```ts
 const store: SessionStore = {
   get: async (id) => JSON.parse((await redis.get(`sess:${id}`)) ?? "null") ?? undefined,
-  set: async (id, data, ttl) => void (await redis.set(`sess:${id}`, JSON.stringify(data), "PX", ttl)),
+  set: async (id, record, ttl) => void (await redis.set(`sess:${id}`, JSON.stringify(record), "EX", ttl)), // ttl in seconds
   delete: async (id) => void (await redis.del(`sess:${id}`)),
 };
 ```
@@ -64,10 +64,11 @@ const store: SessionStore = {
 
 | option | default | |
 | --- | --- | --- |
-| `secret` | required | at least 32 characters; a list rotates them (below) |
+| `secret` | required | at least 32 bytes (a string as UTF-8, or bytes); a list rotates them (below) |
 | `encrypt` | `false` | AES-256-GCM instead of a signature; ignored with a store |
-| `store` | none | `{ get(id), set(id, data, ttl), delete(id) }`, each may be async; `ttl` in ms |
+| `store` | none | `{ get(id), set(id, record, ttl), delete(id) }`, each may be async; `ttl` in **seconds**, as in @inkanjs/auth; `record` is plain JSON |
 | `rolling` | `false` | write the cookie on every answer, so a session lasts `maxAge` after the last request |
+| `maxLifetime` | none | seconds a session lasts at most from its start (or `regenerate()`), however active; with `rolling` you want one |
 | `cookie.name` | `"sid"` | |
 | `cookie.maxAge` | `86400` | seconds; checked on the server too, not only by the browser |
 | `cookie.secure` | `true` | only over HTTPS; browsers take it on `http://localhost` as well |
@@ -87,6 +88,15 @@ const store: SessionStore = {
 | `id`, `isNew`, `changed`, `toJSON()` | |
 
 ## How it behaves
+
+- **CSRF is not handled here.** The cookie is `SameSite=Lax` by default, which keeps it off
+  cross-site POSTs from other sites in current browsers, and that is all. Lax still sends it
+  on top-level GET navigations, and same-site subdomains are not other sites. If a form or
+  a `fetch` changes something on the strength of this cookie, check the request's origin:
+  use @inkanjs/auth (which does) or a check of `Sec-Fetch-Site` / `Origin` of your own, or
+  `sameSite: "strict"`.
+- **Rolling sessions never end while used**, unless you give `maxLifetime`: then a session
+  ends that long after it began (or after the last `regenerate()`), however active it was.
 
 - A request that never reads `ctx.session` costs nothing and sets no cookie. One that
   reads but does not change it sets none either, unless `rolling`.

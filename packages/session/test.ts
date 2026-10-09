@@ -219,8 +219,8 @@ test("a session too big for a cookie is an error that says what to do, not a coo
 });
 
 test("weak secrets and impossible cookies are refused when the plugin is made", () => {
-  assert.throws(() => session({ secret: "short" }), /at least 32 characters/);
-  assert.throws(() => session({ secret: [SECRET, "short"] }), /at least 32 characters/);
+  assert.throws(() => session({ secret: "short" }), /at least 32 bytes/);
+  assert.throws(() => session({ secret: [SECRET, "short"] }), /at least 32 bytes/);
   assert.throws(() => session({ secret: [] }), /give a secret/);
   assert.throws(() => session({ secret: SECRET, cookie: { sameSite: "none", secure: false } }), /needs secure/);
   assert.throws(() => session({ secret: SECRET, cookie: { maxAge: 0 } }), /maxAge/);
@@ -230,4 +230,36 @@ test("cookie options are passed on", async () => {
   const app = shop({ secret: SECRET, cookie: { name: "s", secure: false, sameSite: "strict", path: "/api", domain: "example.com", maxAge: 120 } });
   const r = await send(app, "POST", "/login");
   assert.match(r.cookies[0]!, /^s=[^;]+; Path=\/api; Max-Age=120; Domain=example\.com; HttpOnly; SameSite=Strict$/);
+});
+
+test("secrets are counted in bytes, and bytes are taken as they are", async () => {
+  assert.throws(() => session({ secret: new Uint8Array(31) }), /at least 32 bytes/);
+  const app = shop({ secret: new Uint8Array(32).fill(7) });
+  const sid = cookieOf(await send(app, "POST", "/login"))!;
+  assert.equal((await send(app, "GET", "/me", sid)).body.user, 7);
+});
+
+test("store: the ttl a store gets is in seconds, as in @inkanjs/auth", async () => {
+  const ttls: number[] = [];
+  const inner = memoryStore();
+  const store: SessionStore = { get: (id) => inner.get(id), set: (id, data, ttl) => (ttls.push(ttl), inner.set(id, data, ttl)), delete: (id) => inner.delete(id) };
+  const app = shop({ secret: SECRET, store, cookie: { maxAge: 3600 } });
+  await send(app, "POST", "/login");
+  assert.deepEqual(ttls, [3600]);
+});
+
+test("maxLifetime: rolling keeps a session alive, but never past its absolute lifetime", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  for (const store of [undefined, memoryStore()]) {
+    const app = shop({ secret: SECRET, rolling: true, maxLifetime: 120, store, cookie: { maxAge: 60 } });
+    let sid = cookieOf(await send(app, "POST", "/login"))!;
+    for (let i = 0; i < 2; i++) {
+      t.mock.timers.tick(45_000);
+      const r = await send(app, "GET", "/me", sid);
+      assert.equal(r.body.user, 7, `${store ? "store" : "cookie"}: still there after ${(i + 1) * 45} s`);
+      sid = cookieOf(r) ?? sid;
+    }
+    t.mock.timers.tick(31_000); // 121 s after the login, each request within maxAge of the last
+    assert.equal((await send(app, "GET", "/me", sid)).body.isNew, true, `${store ? "store" : "cookie"}: over after maxLifetime`);
+  }
 });

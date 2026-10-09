@@ -1,11 +1,14 @@
 import type { Plugin } from "@vxnsin/inkan";
 
+/** What a store keeps per session: the data, and when the session began (ms). Plain JSON. */
+export type SessionRecord = { d: Record<string, unknown>; c: number };
+
 /** Where the data lives when the cookie only holds an id. Every method may return a promise. */
 export interface SessionStore {
-  /** The data kept under `id`, or undefined when there is none (any more). */
+  /** The record kept under `id`, or undefined when there is none (any more). */
   get(id: string): unknown | Promise<unknown>;
-  /** Keeps `data` under `id` for `ttl` milliseconds. */
-  set(id: string, data: Record<string, unknown>, ttl: number): void | Promise<void>;
+  /** Keeps `record` under `id` for `ttl` **seconds** (as @inkanjs/auth's store does). */
+  set(id: string, record: SessionRecord, ttl: number): void | Promise<void>;
   delete(id: string): void | Promise<void>;
 }
 
@@ -27,10 +30,10 @@ export type SessionCookie = {
 
 export type SessionOptions = {
   /**
-   * At least 32 characters. A list rotates them: the first signs and encrypts, every one
+   * At least 32 bytes (a string counts as UTF-8). A list rotates them: the first signs and encrypts, every one
    * is accepted, so put the new one first and drop the old one once its cookies expired.
    */
-  secret: string | string[];
+  secret: string | Uint8Array | (string | Uint8Array)[];
   cookie?: SessionCookie;
   /** AES-256-GCM instead of a signature: the client cannot read the data either. Default false. Ignored with a store. */
   encrypt?: boolean;
@@ -38,6 +41,11 @@ export type SessionOptions = {
   store?: SessionStore;
   /** Write the cookie (and the store's entry) on every answer, so the session lasts `maxAge` after the last request. Default false. */
   rolling?: boolean;
+  /**
+   * Seconds a session lasts at most from its start (or its last `regenerate()`), however
+   * active: with `rolling`, the end of an otherwise endless session. Default none.
+   */
+  maxLifetime?: number;
 };
 
 /** One request's session, as `ctx.session`. */
