@@ -27,8 +27,17 @@ export type ProxyOptions = {
   headers?: Record<string, string | null> | ((ctx: Ctx) => Record<string, string | null>);
   /** Milliseconds the upstream may stay silent: before its answer a 504, during it the answer is cut. Default 30000, 0 for none. */
   timeout?: number;
-  /** Adds the client to `x-forwarded-for` and sets `x-forwarded-proto` and `x-forwarded-host`. Default true. */
+  /**
+   * Sets `x-forwarded-for` (`ctx.ip`), `x-forwarded-proto` (`ctx.protocol`) and
+   * `x-forwarded-host` (the request's Host, if it is a plain host[:port]). Default true.
+   */
   xForwarded?: boolean;
+  /**
+   * Passes on the `x-forwarded-*` and `forwarded` headers that came in, and appends the
+   * client to `x-forwarded-for`. Default false: they are dropped and set afresh, so a client
+   * cannot pose as another address. Set true only behind proxies of your own that set them.
+   */
+  trustForwarded?: boolean;
   /** The agent for the upstream connections (keep-alive, TLS options). Default node's global one. */
   agent?: Agent | false;
   /** For `proxy()`: keep its routes out of the docs and the OpenAPI document. Default true. */

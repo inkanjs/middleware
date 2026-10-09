@@ -16,6 +16,9 @@ import { HttpProblem, plugin, reply, t } from "@vxnsin/inkan";
 // hop-by-hop: they describe one connection, not the message (RFC 9110 7.6.1)
 const HOP = new Set(["connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer", "trailers", "proxy-connection", "proxy-authenticate", "proxy-authorization"]);
 const NO_BODY = new Set([204, 304]);
+const FORWARDED = ["forwarded", "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host"];
+// host[:port], a name or an IPv6 literal, at most 255 characters
+const HOST = /^[a-z0-9._~[\]:-]{1,255}$/i;
 
 /** The headers without the hop-by-hop ones, and without those the Connection header names. */
 function endToEnd(headers) {
@@ -95,7 +98,12 @@ const isIterable = (v) => v !== null && typeof v === "object" && typeof v[Symbol
 
 /** The search part of the request's URL, as it came. */
 function searchOf(ctx) {
-  const s = ctx.url.search;
+  let s;
+  try {
+    s = ctx.url.search;
+  } catch {
+    throw new HttpProblem(400, "bad-host", "The Host header does not name a host");
+  }
   return s && s !== "?" ? s : "";
 }
 
@@ -114,14 +122,19 @@ function forward(ctx, target, path, o) {
     delete headers.cookie;
     delete headers.authorization;
   }
+  if (!o.trustForwarded) {
+    // what the client says about itself is not passed on as if a proxy had said it
+    for (const name of FORWARDED) delete headers[name];
+  }
   if (o.xForwarded) {
-    const prior = raw["x-forwarded-for"];
     const ip = ctx.ip;
-    const chain = [prior].flat().filter(Boolean).join(", ");
+    const chain = o.trustForwarded ? [raw["x-forwarded-for"]].flat().filter(Boolean).join(", ") : "";
     if (ip) headers["x-forwarded-for"] = chain ? `${chain}, ${ip}` : ip;
+    else if (!chain) delete headers["x-forwarded-for"];
     headers["x-forwarded-proto"] = ctx.protocol;
     const host = raw.host;
-    if (host) headers["x-forwarded-host"] = String(host);
+    if (typeof host === "string" && HOST.test(host)) headers["x-forwarded-host"] = host;
+    else delete headers["x-forwarded-host"];
   }
   const extra = typeof o.headers === "function" ? o.headers(ctx) : o.headers;
   for (const [k, v] of Object.entries(extra ?? {})) {

@@ -16,3 +16,6 @@
   dot-segment check. `proxyTo` with `rewrite` checks the path too.
 - Security: the client's `cookie` and `authorization` are no longer passed on;
   `forwardCredentials: true` for an upstream of the same trust.
+- Security: the `x-forwarded-*` and `forwarded` headers a client sent are dropped and set
+  afresh from `ctx.ip`, `ctx.protocol` and a checked Host; `trustForwarded: true` keeps the
+  old chain. A Host no URL can hold is a 400 `bad-host`, not a 500.

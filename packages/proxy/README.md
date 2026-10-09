@@ -42,6 +42,7 @@ GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 | `headers` | none | headers to set on the upstream request, `null` removes one; or `(ctx) => headers` |
 | `timeout` | `30000` | ms the upstream may stay silent: a 504 before its answer, the answer cut during it; `0` for none |
 | `xForwarded` | `true` | `x-forwarded-for`, `-proto` and `-host` for the upstream |
+| `trustForwarded` | `false` | pass on the `x-forwarded-*` and `forwarded` that came in and append to the chain |
 | `agent` | node's global agent | a `http.Agent` / `https.Agent`, for keep-alive or TLS options |
 | `hidden` | `true` | for `proxy()`: keep its routes out of the docs and OpenAPI |
 | `meta` | none | for `proxy()`: `meta` of its routes, for other plugins (`ctx.route.meta`) |
@@ -73,10 +74,16 @@ with `rewrite`, for `to`'s path + `rewrite(ctx.path)`.
   `/legacy/a%2f..%2f..%2fadmin` into `/admin`. A path segment that needs a literal `/` cannot
   go through the proxy. Repeated slashes become one. `proxyTo` with `rewrite` checks the
   request's path the same way.
-- `x-forwarded-for` gets the client's address (`ctx.ip`, so with `trustProxy` the one
-  your own proxies name) appended to what came in; `x-forwarded-proto` and
-  `x-forwarded-host` are set from `ctx.protocol` and the Host header, replacing what the
-  client sent. The upstream should trust them only from this proxy.
+- **No forged forwarding headers.** By default the `x-forwarded-for`, `-proto`, `-host` and
+  `forwarded` headers that came in are dropped: `x-forwarded-for` is `ctx.ip`,
+  `x-forwarded-proto` is `ctx.protocol`, and `x-forwarded-host` the request's Host (only a
+  plain `host[:port]` of at most 255 characters, otherwise left out). `ctx.ip` and
+  `ctx.protocol` already honour the app's `trustProxy`, so behind your own load balancer
+  they are the real client's. With `trustForwarded: true` what came in is passed on and the
+  client appended to `x-forwarded-for`; use it only when every request comes through proxies
+  of yours that set those headers. With `xForwarded: false` none is set, and the incoming
+  ones are still dropped unless `trustForwarded`. The upstream should trust them only from
+  this proxy. A Host header no URL can hold is a 400 `bad-host`.
 - Credentials for the upstream go into `headers`, not into `to`, which refuses them.
 
 ## How it behaves

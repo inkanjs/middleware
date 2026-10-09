@@ -95,7 +95,7 @@ test("headers: hop-by-hop ones are dropped both ways, x-forwarded-* added, host 
   assert.equal(h.authorization, "Bearer upstream");
   assert.equal(h["x-forwarded-host"], "api.example.com");
   assert.equal(h["x-forwarded-proto"], "http");
-  assert.equal(h["x-forwarded-for"], "203.0.113.9", "no address under inject: the chain is passed on as it came");
+  assert.equal(h["x-forwarded-for"], undefined, "no address under inject, and the client's chain is not believed");
 
   assert.equal(r.headers["x-upstream"], "yes");
   for (const name of ["connection", "keep-alive", "x-secret-hop"]) assert.equal(r.headers[name], undefined, name);
@@ -329,4 +329,32 @@ test("the client's cookie and authorization stay here unless forwardCredentials;
 
   const one = inkan(quiet).get("/one", proxyTo(up));
   assert.equal((await one.inject({ url: "/one", headers: creds })).body.headers.cookie, undefined, "proxyTo too");
+});
+
+test("x-forwarded-* and forwarded the client sent are replaced unless trustForwarded; the host is checked", async (t) => {
+  const up = await serve(t, echo);
+  const spoof = { "x-forwarded-for": "10.0.0.1", "x-forwarded-proto": "https", "x-forwarded-host": "admin.internal", forwarded: "for=10.0.0.1;host=admin.internal" };
+  const url = await listen(t, inkan(quiet).register(proxy({ prefix: "/own", to: up })).register(proxy({ prefix: "/chain", to: up, trustForwarded: true })));
+  const seen = async (path: string, headers: Record<string, string>) => ((await (await fetch(url + path, { headers })).json()) as { headers: Record<string, string> }).headers;
+
+  const own = await seen("/own/x", spoof);
+  assert.equal(own["x-forwarded-for"], "127.0.0.1");
+  assert.equal(own["x-forwarded-proto"], "http");
+  assert.equal(own["x-forwarded-host"], new URL(url).host, "the Host the client sent, not its x-forwarded-host");
+  assert.equal(own.forwarded, undefined);
+
+  const chain = await seen("/chain/x", spoof);
+  assert.equal(chain["x-forwarded-for"], "10.0.0.1, 127.0.0.1");
+  assert.equal(chain.forwarded, "for=10.0.0.1;host=admin.internal");
+
+  const app = inkan(quiet).register(proxy({ to: up }));
+  for (const host of ["evil.example/x", "user@evil.example", "x".repeat(256), "evil.example,admin"]) {
+    assert.equal((await app.inject({ url: "/x", headers: { host } })).body.headers["x-forwarded-host"], undefined, host);
+  }
+  assert.equal((await app.inject({ url: "/x", headers: { host: "[::1]:8080" } })).body.headers["x-forwarded-host"], "[::1]:8080");
+  assert.equal((await app.inject({ url: "/x", headers: { host: "a b" } })).status, 400, "a Host no URL takes");
+
+  const off = inkan(quiet).register(proxy({ to: up, xForwarded: false }));
+  const none = (await off.inject({ url: "/x", headers: spoof })).body.headers;
+  for (const name of Object.keys(spoof)) assert.equal(none[name], undefined, `${name}, with xForwarded off too`);
 });
