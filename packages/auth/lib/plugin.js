@@ -135,6 +135,15 @@ function configure(o) {
         maxAge: j.maxAge,
         ...(j.secret !== undefined ? { secret: j.secret } : j.key !== undefined ? { key: j.key } : { jwks: jwksSource(j.jwks, j.jwksOptions) }),
       };
+      // a token of another issuer, or one meant for another API, must never pass: a key set
+      // or a shared secret usually signs tokens for more than this one audience
+      const none = (v) => v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
+      if (none(j.issuer) && j.unsafeSkipIssuer !== true) {
+        throw new TypeError("auth: jwt.issuer is required for tokens from elsewhere (or unsafeSkipIssuer: true, to take any issuer the key signs for)");
+      }
+      if (none(j.audience) && j.unsafeSkipAudience !== true) {
+        throw new TypeError("auth: jwt.audience is required for tokens from elsewhere (or unsafeSkipAudience: true, when every token of the issuer is meant for this API)");
+      }
     }
     if (j.user !== undefined && !fn(j.user)) throw new TypeError("auth: jwt.user must be a function of the claims");
     if (verify && !j.user && !fn(users.byId)) throw new TypeError("auth: jwt needs jwt.user or users.byId to turn claims into a user");

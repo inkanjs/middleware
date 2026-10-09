@@ -79,8 +79,14 @@ export type JwtIssueOptions = { expiresIn?: Duration; refreshTtl?: Duration; iss
 export type JwtOptions<U> = {
   /** Turns verified claims into your user. Default: users.byId(claims.sub). */
   user?: (claims: JwtPayload, ctx: Ctx) => Awaitable<U | null | undefined>;
+  /** Required with jwks, key or secret: tokens of another issuer are refused. */
   issuer?: string | readonly string[];
+  /** Required with jwks, key or secret: tokens meant for another API are refused. */
   audience?: string | readonly string[];
+  /** Takes tokens of any issuer the key signs for. Only when the key is yours alone. */
+  unsafeSkipIssuer?: boolean;
+  /** Takes tokens for any audience. Only when every token of the issuer is meant for this API. */
+  unsafeSkipAudience?: boolean;
   clockTolerance?: Duration;
   maxAge?: Duration;
   /** Makes POST /token and /token/refresh: short JWTs signed with a key from `secret`, rotating refresh tokens. */

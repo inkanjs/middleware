@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync } from "node:crypto";
 import { inkan } from "@vxnsin/inkan";
 import { auth, signJwt } from "../index.js";
 import { SECRET, clock, makeUsers, type User } from "./app.ts";
@@ -68,13 +68,13 @@ test("bearer: invalid tokens are a 401 with www-authenticate, expired ones say s
 });
 
 test("bearer: jwt.user maps claims without a database", async () => {
-  const a = app({ jwt: { jwks: `${idp.url}/jwks`, algorithms: ["RS256"], user: (claims: { sub?: string }) => ({ id: claims.sub, roles: ["admin"] }) } });
+  const a = app({ jwt: { jwks: `${idp.url}/jwks`, algorithms: ["RS256"], issuer: "https://idp.example", audience: "api", user: (claims: { sub?: string }) => ({ id: claims.sub, roles: ["admin"] }) } });
   assert.deepEqual((await a.inject({ url: "/admin", headers: bearer(idpToken({ sub: "ext-7" })) })).body, { id: "ext-7" });
 });
 
 test("bearer: a shared HS secret", async () => {
-  const a = app({ jwt: { secret: HS, algorithms: ["HS256"] } });
-  const good = signJwt({ sub: "1" }, { algorithm: "HS256", secret: HS, expiresIn: 60, now: clock.t });
+  const a = app({ jwt: { secret: HS, algorithms: ["HS256"], issuer: "billing", audience: "api" } });
+  const good = signJwt({ sub: "1" }, { algorithm: "HS256", secret: HS, issuer: "billing", audience: "api", expiresIn: 60, now: clock.t });
   assert.deepEqual((await a.inject({ url: "/bearer", headers: bearer(good) })).body, { id: 1, method: "jwt" });
   assert.equal((await a.inject({ url: "/bearer", headers: bearer(idpToken()) })).status, 401, "an RS token is not taken by an HS setup");
 });
@@ -82,13 +82,41 @@ test("bearer: a shared HS secret", async () => {
 test("bearer: the provider's keys unreachable is a 503, not a 401", async () => {
   jwksUp = false;
   try {
-    const a = app({ jwt: { jwks: `${idp.url}/jwks-down`, algorithms: ["RS256"] } });
+    const a = app({ jwt: { jwks: `${idp.url}/jwks-down`, algorithms: ["RS256"], issuer: "https://idp.example", audience: "api" } });
     const res = await a.inject({ url: "/bearer", headers: bearer(idpToken()) });
     assert.equal(res.status, 503);
     assert.equal(res.body.type, "auth-unavailable");
   } finally {
     jwksUp = true;
   }
+});
+
+test("tokens from elsewhere: issuer and audience are required, unless explicitly skipped", async () => {
+  const users = makeUsers().source;
+  const jwks = `${idp.url}/jwks`;
+  assert.throws(() => auth({ session: false, users, jwt: { jwks, algorithms: ["RS256"], audience: "api" } }), /jwt.issuer is required/);
+  assert.throws(() => auth({ session: false, users, jwt: { jwks, algorithms: ["RS256"], issuer: "https://idp.example" } }), /jwt.audience is required/);
+  assert.throws(() => auth({ session: false, users, jwt: { jwks, algorithms: ["RS256"], issuer: [], audience: "api" } }), /jwt.issuer is required/);
+  assert.throws(() => auth({ session: false, users, jwt: { secret: HS, algorithms: ["HS256"] } }), /jwt.issuer is required/);
+  assert.throws(() => auth({ session: false, users, jwt: { key: rsa.publicKey, algorithms: ["RS256"], issuer: "x" } }), /jwt.audience is required/);
+  const skipped = app({ jwt: { jwks, algorithms: ["RS256"], unsafeSkipIssuer: true, unsafeSkipAudience: true } });
+  const res = await skipped.inject({ url: "/bearer", headers: bearer(idpToken({}, { issuer: "https://elsewhere.example", audience: "other" })) });
+  assert.equal(res.status, 200, "skipped on purpose: any issuer and audience");
+});
+
+test("own access tokens are checked for their issuer and audience too", async () => {
+  // the key the plugin derives from its secret, as lib/keys.js does
+  const jwtKey = createHmac("sha256", SECRET).update("inkan-auth/jwt").digest();
+  const key = { jwt: jwtKey, kid: "ia-" + createHash("sha256").update(jwtKey).digest("base64url").slice(0, 16) };
+  const users = makeUsers();
+  const a = inkan({ log: false })
+    .register(auth<User>({ secret: SECRET, users: users.source, clock: () => clock.t, jwt: { issue: { issuer: "shop", audience: "shop-api" } } }))
+    .get("/me", { security: "bearer" }, (ctx) => ({ id: ctx.user!.id }));
+  const own = (issuer: string, audience: string) =>
+    signJwt({ uid: 1, use: "access" }, { algorithm: "HS256", secret: key.jwt, kid: key.kid, issuer, audience, expiresIn: 60, now: clock.t });
+  assert.equal((await a.inject({ url: "/me", headers: bearer(own("shop", "shop-api")) })).status, 200);
+  assert.equal((await a.inject({ url: "/me", headers: bearer(own("other", "shop-api")) })).status, 401);
+  assert.equal((await a.inject({ url: "/me", headers: bearer(own("shop", "other-api")) })).status, 401);
 });
 
 test("api keys: in a header or the query", async () => {

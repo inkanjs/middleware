@@ -135,8 +135,12 @@ auth({
 });
 ```
 
+`issuer` and `audience` are required: a key set or a shared secret usually signs tokens for
+more than one API, and a token meant for another one must not open this one. Only when that
+cannot happen, say so with `unsafeSkipIssuer: true` or `unsafeSkipAudience: true`.
+
 The user is `users.byId(claims.sub)`, or what `jwt.user(claims, ctx)` makes of the claims
-(for an API without a user table). A shared HS secret works too: `{ secret, algorithms: ["HS256"] }`.
+(for an API without a user table). A shared HS secret works too: `{ secret, algorithms: ["HS256"], issuer, audience }`.
 The algorithm list is required, `none` is never accepted, and a key never works for another
 algorithm family. If the provider's keys cannot be fetched, the answer is a 503.
 
