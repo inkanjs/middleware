@@ -9,7 +9,7 @@ OpenAPI document and covered by `inkan check`.
 npm install @inkanjs/auth
 ```
 
-Node 22.18 or newer, inkan 0.7 or newer. MIT licensed.
+Node 22.18 or newer, inkan 0.7 (`register()` refuses other versions). MIT licensed.
 
 ## Quick start
 

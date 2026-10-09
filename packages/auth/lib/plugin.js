@@ -332,7 +332,7 @@ const forbidden = (detail) => new HttpProblem(403, "forbidden", detail);
  */
 export function auth(options) {
   const c = configure(options);
-  const p = plugin((app) => install(app, c), { name: "auth", shared: true });
+  const p = plugin((app) => install(app, c), { name: "auth", shared: true, inkan: ">=0.7.0 <0.8.0" });
   Object.defineProperty(p, "session", { value: c.sessionScheme, enumerable: true });
   return p;
 }
