@@ -49,7 +49,7 @@ takes with `security`, as inkan always had it; the plugin checks those credentia
 | carries none of the credentials the route asks for | 401 `unauthorized` (inkan itself)                    |
 | carries them, but they are wrong               | 401 `invalid-credentials`, `token-expired` or `session-expired`, with `www-authenticate` for bearer and basic |
 | is fine, but `meta.auth.roles` names none of the user's roles | 403 `forbidden`                           |
-| comes with the session cookie from another site | 403 `csrf` (unsafe methods only)                        |
+| comes with a credential cookie from another site | 403 `csrf` (unsafe methods only)                       |
 
 Several schemes on a route are alternatives: `security: ["bearer", login.session]` takes either.
 A route asking for a scheme the plugin was not configured for is refused, never let through.
@@ -92,8 +92,10 @@ auth({ secret, users, session: { cookie: "__Host-sid", maxAge: "12h", store: red
 
 Cookie-authenticated requests with an unsafe method (anything but GET, HEAD, OPTIONS) must come
 from your own pages: `Sec-Fetch-Site: same-origin`, or an `Origin` whose host is the request's
-host or one of `origins`. Without both headers such a request is refused. Bearer, API key and
-basic requests are never checked: a browser does not add those by itself. `POST /auth/login`
+host or one of `origins`. Without both headers such a request is refused. This holds for every
+credential a browser sends by itself: the session cookie, and an API key scheme with
+`in: "cookie"`. Bearer, basic and API keys in a header or the query are never checked: a
+browser does not add those by itself. `POST /auth/login`
 is checked too (login CSRF), but there a request without `Origin` (not a browser) goes on.
 
 ```js

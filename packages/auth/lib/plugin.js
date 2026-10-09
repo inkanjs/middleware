@@ -304,11 +304,11 @@ function install(app, c) {
           return true;
         });
   const ttlUntil = (ms) => Math.max(1, Math.ceil((ms - clock()) / 1000));
-  /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined }>} */
+  /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined, cookie: boolean }>} */
   const states = new WeakMap();
   const stateOf = (ctx) => {
     let s = states.get(ctx);
-    if (!s) states.set(ctx, (s = { user: undefined, method: undefined, sid: undefined }));
+    if (!s) states.set(ctx, (s = { user: undefined, method: undefined, sid: undefined, cookie: false }));
     return s;
   };
   let dummy;
@@ -344,7 +344,7 @@ function install(app, c) {
       sameSite: session.sameSite,
       secure: secureFor(ctx),
     });
-    Object.assign(st, { user, method: "session", sid: id });
+    Object.assign(st, { user, method: "session", sid: id, cookie: true });
     ctx.user = user;
   }
 
@@ -355,7 +355,7 @@ function install(app, c) {
       if (id) await session.store.delete(sessionKey(id));
       if (ctx.cookies[session.cookie] !== undefined) ctx.clearCookie(session.cookie, { path: "/", domain: session.domain });
     }
-    Object.assign(st, { user: undefined, method: undefined, sid: undefined });
+    Object.assign(st, { user: undefined, method: undefined, sid: undefined, cookie: false });
     ctx.user = undefined;
   }
 
@@ -446,9 +446,10 @@ function install(app, c) {
       if (!c.basic) throw invalid("basic auth is not configured");
       return fromBasic(ctx, value);
     }
-    if (isSessionScheme(s)) return fromSession(value);
+    if (isSessionScheme(s)) return { ...(await fromSession(value)), cookie: true };
     if (!c.apiKeys) throw invalid("api keys are not configured");
-    return fromApiKey(ctx, value);
+    // a key in a cookie is sent by the browser on its own, as a session is: CSRF applies
+    return { ...(await fromApiKey(ctx, value)), cookie: s.in === "cookie" };
   }
 
   // ---- CSRF ----
@@ -474,7 +475,7 @@ function install(app, c) {
     }
     return site === undefined && !strict;
   }
-  const csrf = () => new HttpProblem(403, "csrf", "A request with the session cookie must come from this site's own pages");
+  const csrf = () => new HttpProblem(403, "csrf", "A request with a credential cookie must come from this site's own pages");
 
   // ---- per request ----
 
@@ -527,7 +528,7 @@ function install(app, c) {
     }
 
     if (!SAFE_METHODS.has(ctx.method)) {
-      if (st.method === "session" && !fromOurOrigin(ctx, true)) throw csrf();
+      if (st.cookie && !fromOurOrigin(ctx, true)) throw csrf();
       if (!st.user && route.meta[SETS_SESSION] && !fromOurOrigin(ctx, false)) throw csrf();
     }
 
@@ -564,8 +565,8 @@ function install(app, c) {
     const roles = route.spec.meta?.auth?.roles ?? [];
     const notes = [];
     if (roles.length) notes.push(`needs one of the roles ${roles.join(", ")}`);
-    if (!SAFE_METHODS.has(route.method) && security.some(isSessionScheme)) {
-      notes.push("a request with the session cookie from another site is refused (csrf)");
+    if (!SAFE_METHODS.has(route.method) && security.some((s) => typeof s === "object" && s.in === "cookie")) {
+      notes.push("a request with a credential cookie from another site is refused (csrf)");
     }
     if (!notes.length) return;
     (components.schemas ??= {}).Problem ??= PROBLEM_JSON;

@@ -119,6 +119,22 @@ test("own access tokens are checked for their issuer and audience too", async ()
   assert.equal((await a.inject({ url: "/me", headers: bearer(own("shop", "other-api")) })).status, 401);
 });
 
+test("CSRF: an API key in a cookie is checked like the session cookie; one in a header is not", async () => {
+  const users = makeUsers();
+  const plugin = auth<User>({ secret: SECRET, users: users.source, apiKeys: { verify: (key) => (key === "key-of-bob" ? users.list[1] : undefined) } });
+  const a = inkan({ log: false })
+    .register(plugin)
+    .post("/by-cookie", { security: { apiKey: "token", in: "cookie" } }, (ctx) => ({ id: ctx.user!.id }))
+    .post("/by-header", { security: { apiKey: "x-api-key" } }, (ctx) => ({ id: ctx.user!.id }));
+  const evil = { origin: "https://evil.example" };
+  const cross = await a.inject({ method: "POST", url: "/by-cookie", headers: { cookie: "token=key-of-bob", ...evil } });
+  assert.equal(cross.status, 403);
+  assert.equal(cross.body.type, "csrf");
+  const own = await a.inject({ method: "POST", url: "/by-cookie", headers: { cookie: "token=key-of-bob", "sec-fetch-site": "same-origin" } });
+  assert.deepEqual(own.body, { id: 2 });
+  assert.deepEqual((await a.inject({ method: "POST", url: "/by-header", headers: { "x-api-key": "key-of-bob", ...evil } })).body, { id: 2 });
+});
+
 test("api keys: in a header or the query", async () => {
   const a = app();
   assert.deepEqual((await a.inject({ url: "/key", headers: { "x-api-key": "key-of-bob" } })).body, { id: 2, method: "apiKey" });
