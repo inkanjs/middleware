@@ -1,0 +1,21 @@
+{
+  "name": "inkanjs-middleware",
+  "private": true,
+  "description": "More middleware for inkan: auth, sessions, secure headers, ETags and idempotency keys, one package each.",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "npm test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}

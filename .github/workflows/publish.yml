@@ -1,0 +1,67 @@
+name: publish
+
+# A GitHub release publishes one package: the tag names it and its version, as
+# `auth-v0.1.0` for packages/auth at 0.1.0. It goes to npmjs.com, which trusts this workflow
+# per package (trusted publishing, with provenance, no token), and to GitHub Packages.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: the tag names a package and its version
+        id: tag
+        run: |
+          tag="${TAG}"
+          pkg="${tag%-v*}"
+          version="${tag##*-v}"
+          if [ ! -f "packages/$pkg/package.json" ]; then echo "::error::no package called $pkg"; exit 1; fi
+          have="$(node -p "require('./packages/$pkg/package.json').version")"
+          if [ "$have" != "$version" ]; then echo "::error::$tag, but packages/$pkg is at $have"; exit 1; fi
+          echo "pkg=$pkg" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test -w packages/${{ steps.tag.outputs.pkg }}
+      - run: npm publish -w packages/${{ steps.tag.outputs.pkg }} --access public --ignore-scripts
+
+  # the same package on GitHub Packages, next to the repository; its name already has the
+  # organisation's scope, which GitHub Packages asks for
+  github-packages:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: "@inkanjs"
+      - name: the package the tag names
+        id: tag
+        run: echo "pkg=${TAG%-v*}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      - run: npm publish -w packages/${{ steps.tag.outputs.pkg }} --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
