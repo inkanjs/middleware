@@ -127,9 +127,11 @@ export class Session {
   #destroyed = false;
   #origin; // the id the request came with, for the store to forget when it changes
   #created; // milliseconds: when the session began, or was last regenerated
+  #flash; // type → messages, until they are read; undefined for none
 
-  constructor(data, id, isNew, created = Date.now()) {
+  constructor(data, id, isNew, created = Date.now(), flash = undefined) {
     this.#data = data;
+    this.#flash = flash;
     this.#id = id;
     this.#isNew = isNew;
     this.#origin = isNew ? undefined : id;
@@ -171,12 +173,44 @@ export class Session {
   }
   clear() {
     this.#data = Object.create(null);
+    this.#flash = undefined;
     this.#changed = true;
     return this;
   }
   /** Everything in it, as a copy. */
   toJSON() {
     return { ...this.#data };
+  }
+  /**
+   * A message for the next request that reads it, such as "Saved." after a form's redirect.
+   * Kept in the session until `flashes()` hands it out, once.
+   */
+  flash(type, message) {
+    if (typeof type !== "string" || typeof message !== "string") throw new TypeError("session: flash(type, message) takes two strings");
+    const all = (this.#flash ??= Object.create(null));
+    (all[type] ??= []).push(message);
+    this.#changed = true;
+    this.#destroyed = false;
+    return this;
+  }
+  /**
+   * The flash messages of one type, or all of them by type, and gone from the session:
+   * each is read once.
+   */
+  flashes(type) {
+    const all = this.#flash;
+    if (type !== undefined) {
+      const list = all?.[type];
+      if (!list) return [];
+      delete all[type];
+      if (!Object.keys(all).length) this.#flash = undefined;
+      this.#changed = true;
+      return list;
+    }
+    if (!all) return {};
+    this.#flash = undefined;
+    this.#changed = true;
+    return { ...all };
   }
   /**
    * A new id for the same data: call it when the user signs in, so an id somebody planted
@@ -191,6 +225,7 @@ export class Session {
   /** Ends the session: the cookie is cleared and the store forgets it. */
   destroy() {
     this.#data = Object.create(null);
+    this.#flash = undefined;
     this.#id = newId(); // whatever is set afterwards is a new session
     this.#created = Date.now();
     this.#destroyed = true;
@@ -199,6 +234,10 @@ export class Session {
   /** @internal The id the request came with; undefined for a new session. */
   _origin() {
     return this.#origin;
+  }
+  /** @internal The flash messages still to be read, for writing; undefined for none. */
+  _flash() {
+    return this.#flash;
   }
   /** @internal When it began, in milliseconds. */
   _created() {
@@ -214,6 +253,17 @@ const parse = (text) => {
     return undefined;
   }
 };
+/** Flash messages as they were kept: type → strings; anything else is dropped. */
+function flashOf(f) {
+  if (!f || typeof f !== "object" || Array.isArray(f)) return undefined;
+  const out = Object.create(null);
+  for (const [type, list] of Object.entries(f)) {
+    if (!Array.isArray(list)) continue;
+    const messages = list.filter((m) => typeof m === "string");
+    if (messages.length) out[type] = messages;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 const dataOf = (d) => Object.assign(Object.create(null), d && typeof d === "object" ? d : {});
 
 /**
@@ -252,7 +302,7 @@ export function session(options) {
     if (!p || typeof p.i !== "string" || !(p.e > Date.now())) return;
     const created = typeof p.c === "number" ? p.c : 0;
     if (tooOld(created)) return;
-    return new Session(dataOf(p.d), p.i, false, created);
+    return new Session(dataOf(p.d), p.i, false, created, flashOf(p.f));
   }
 
   return plugin(
@@ -267,7 +317,7 @@ export function session(options) {
           if (rec === undefined || rec === null || typeof rec !== "object") return;
           const created = typeof rec.c === "number" ? rec.c : 0;
           if (tooOld(created)) return void (await store.delete(id));
-          ctx.session = new Session(dataOf(rec.d), id, false, created);
+          ctx.session = new Session(dataOf(rec.d), id, false, created, flashOf(rec.f));
         });
       }
 
@@ -288,10 +338,11 @@ export function session(options) {
         let value;
         if (store) {
           if (origin && origin !== s.id) await store.delete(origin); // regenerated: the old id is worth nothing now
-          await store.set(s.id, { d: s.toJSON(), c: s._created() }, life); // ttl in seconds
+          const f = s._flash();
+          await store.set(s.id, f ? { d: s.toJSON(), c: s._created(), f } : { d: s.toJSON(), c: s._created() }, life); // ttl in seconds
           value = cookie.write(s.id);
         } else {
-          value = cookie.write(JSON.stringify({ i: s.id, e: Date.now() + life * 1000, c: s._created(), d: s.toJSON() }));
+          value = cookie.write(JSON.stringify({ i: s.id, e: Date.now() + life * 1000, c: s._created(), d: s.toJSON(), f: s._flash() }));
         }
         if (name.length + 1 + value.length > MAX_COOKIE) {
           throw new Error(`session: the cookie would have ${name.length + 1 + value.length} bytes, more than the ${MAX_COOKIE} bytes browsers keep; keep less in it, or use a store`);

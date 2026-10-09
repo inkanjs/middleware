@@ -1,7 +1,7 @@
 import type { Plugin } from "@vxnsin/inkan";
 
-/** What a store keeps per session: the data, and when the session began (ms). Plain JSON. */
-export type SessionRecord = { d: Record<string, unknown>; c: number };
+/** What a store keeps per session: the data, when the session began (ms), and flash messages not read yet. Plain JSON. */
+export type SessionRecord = { d: Record<string, unknown>; c: number; f?: Record<string, string[]> };
 
 /** Where the data lives when the cookie only holds an id. Every method may return a promise. */
 export interface SessionStore {
@@ -62,7 +62,16 @@ export declare class Session<Data extends Record<string, unknown> = Record<strin
   has(key: keyof Data & string): boolean;
   set<K extends keyof Data & string>(key: K, value: Data[K]): this;
   delete(key: keyof Data & string): this;
-  /** Empties it; the session itself stays. */
+  /**
+   * A message for a later request, such as "Saved." before a redirect: kept in the session
+   * until `flashes()` reads it, once.
+   */
+  flash(type: string, message: string): this;
+  /** The messages of one type, oldest first, and gone from the session. */
+  flashes(type: string): string[];
+  /** All messages by type, and gone from the session. */
+  flashes(): Record<string, string[]>;
+  /** Empties it, flash messages too; the session itself stays. */
   clear(): this;
   /** A copy of everything in it. */
   toJSON(): Partial<Data>;

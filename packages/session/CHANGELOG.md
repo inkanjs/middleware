@@ -10,3 +10,4 @@
 - `memoryStore({ max })`.
 - A store's `ttl` is in seconds (as in @inkanjs/auth) and it keeps `{ d, c }` records;
   secrets are counted in bytes and may be bytes; `maxLifetime` ends rolling sessions.
+- Flash messages: `ctx.session.flash(type, message)` and `ctx.session.flashes(type?)`, read once.

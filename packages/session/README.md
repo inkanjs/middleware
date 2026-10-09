@@ -85,7 +85,35 @@ const store: SessionStore = {
 | `set(key, value)`, `delete(key)`, `clear()` | change; the answer carries the new cookie |
 | `regenerate()` | a new id for the same data. Call it when a user signs in: an id somebody planted or saw before is worth nothing afterwards (session fixation) |
 | `destroy()` | ends it: the cookie is cleared, the store forgets the id |
+| `flash(type, message)`, `flashes(type?)` | messages for a later request, read once (below) |
 | `id`, `isNew`, `changed`, `toJSON()` | |
+
+## Flash messages
+
+A message for the next page, such as "Saved." after a form posts and redirects. It stays
+in the session until it is read, and is gone once it was.
+
+```ts
+app
+  .post("/teas", async (ctx) => {
+    await saveTea(ctx.body);
+    ctx.session.flash("success", "Tea saved.");
+    return ctx.redirect("/teas", 303);
+  })
+  .get("/teas", (ctx) => {
+    const notes = ctx.session.flashes("success"); // ["Tea saved."], then [] on the next request
+    return ctx.render(teaList(notes));
+  });
+```
+
+- `flash(type, message)` adds a message of a type (`"success"`, `"error"`, …); messages of
+  a type are kept in order. Both are strings.
+- `flashes(type)` hands back the messages of that type and removes them; `flashes()` all of
+  them by type, `{ success: ["Tea saved."] }`.
+- They are part of the session: in the cookie, signed or encrypted, or in the store
+  (`record.f`), so the cookie's size limit counts them too. `clear()` and `destroy()`
+  drop them. Reading when there are none sets no cookie.
+- Render them escaped, as the `html` tag does: a message may carry what a user typed.
 
 ## How it behaves
 

@@ -263,3 +263,71 @@ test("maxLifetime: rolling keeps a session alive, but never past its absolute li
     assert.equal((await send(app, "GET", "/me", sid)).body.isNew, true, `${store ? "store" : "cookie"}: over after maxLifetime`);
   }
 });
+
+function flashing(options: Parameters<typeof session>[0]) {
+  return inkan(quiet)
+    .register(session<Data>(options))
+    .post("/save", (ctx) => {
+      ctx.session.flash("success", "Saved.").flash("success", "Mailed.").flash("warning", "Low stock.");
+      return { ok: true };
+    })
+    .get("/success", (ctx) => ({ messages: ctx.session.flashes("success") }))
+    .get("/all", (ctx) => ({ messages: ctx.session.flashes() }))
+    .get("/peek", (ctx) => ({ user: ctx.session.get("user") ?? null }));
+}
+
+test("flash: a message is read once, by type or all at once, in a cookie and in a store", async () => {
+  for (const store of [undefined, memoryStore()]) {
+    const label = store ? "store" : "cookie";
+    const app = flashing({ secret: SECRET, store });
+    let sid = cookieOf(await send(app as never, "POST", "/save"))!;
+    assert.ok(sid, label);
+    assert.deepEqual((await send(app as never, "GET", "/peek", sid)).cookies, [], `${label}: not read, nothing written`);
+
+    const first = await send(app as never, "GET", "/success", sid);
+    assert.deepEqual(first.body.messages, ["Saved.", "Mailed."], label);
+    sid = cookieOf(first) ?? sid;
+    assert.deepEqual((await send(app as never, "GET", "/success", sid)).body.messages, [], `${label}: read once`);
+
+    const all = await send(app as never, "GET", "/all", sid);
+    assert.deepEqual(all.body.messages, { warning: ["Low stock."] }, label);
+    sid = cookieOf(all) ?? sid;
+    const none = await send(app as never, "GET", "/all", sid);
+    assert.deepEqual(none.body.messages, {}, `${label}: all read`);
+    assert.deepEqual(none.cookies, [], `${label}: nothing left to write`);
+  }
+});
+
+test("flash: no messages and no session cost nothing; clear and destroy drop them; only strings", async () => {
+  const app = flashing({ secret: SECRET });
+  const r = await send(app as never, "GET", "/success");
+  assert.deepEqual(r.body.messages, []);
+  assert.deepEqual(r.cookies, [], "reading no flashes writes no cookie");
+
+  const probe = inkan(quiet)
+    .register(session({ secret: SECRET }))
+    .get("/x", (ctx) => {
+      ctx.session.flash("info", "a");
+      ctx.session.clear();
+      const afterClear = ctx.session.flashes();
+      ctx.session.flash("info", "b");
+      ctx.session.destroy();
+      return { afterClear, afterDestroy: ctx.session.flashes("info") };
+    })
+    .get("/bad", (ctx) => {
+      ctx.session.flash("info", 42 as never);
+    });
+  assert.deepEqual((await probe.inject({ url: "/x" })).body, { afterClear: {}, afterDestroy: [] });
+  assert.equal((await probe.inject({ url: "/bad" })).status, 500);
+});
+
+test("flash: a broken record in the store gives only its strings", async () => {
+  const store = memoryStore();
+  const app = flashing({ secret: SECRET, store });
+  const sid = cookieOf(await send(app as never, "POST", "/save"))!;
+  const id = Buffer.from(sid.split(".")[0]!, "base64url").toString();
+  const rec = store.get(id) as { d: object; c: number; f: unknown };
+  rec.f = { success: ["ok", 1, { x: 1 }], other: "nope", warning: [] };
+  store.set(id, rec as never, 60);
+  assert.deepEqual((await send(app as never, "GET", "/all", sid)).body.messages, { success: ["ok"] });
+});
