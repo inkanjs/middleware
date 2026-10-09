@@ -25,3 +25,12 @@
   `safeEqual`, `github`, `google`, `oidcProvider`, `AuthError`.
 - Inside: JWT verification with algorithm allow-lists and JWKS, scrypt password hashing,
   TOTP/HOTP with base32, OAuth 2.0 and OpenID Connect with PKCE, random and hashed tokens.
+- Hardening before release: external JWTs need `issuer` and `audience` (or an explicit
+  `unsafeSkipIssuer` / `unsafeSkipAudience`); refresh families are written once and stay
+  revoked, with `refreshMaxAge` (30 days) and atomic `take`/`add` in the store contract;
+  brute-force counters per address (IPv6 by /64), per login and address, and per login, in a
+  store of their own; CSRF for every cookie-carried credential and a scheme-aware origin
+  fallback; TOTP setup and confirm need the password or a fresh login, `totp/disable`, and
+  one-time recovery codes; the pending TOTP secret sealed; scrypt cost of stored hashes
+  bounded, a dummy derive for broken hashes, and at most `hashing.concurrency` checks at once;
+  the last JWKS keys kept for `staleMs` while the provider is down.
