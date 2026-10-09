@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import net, { type AddressInfo } from "node:net";
 import { once } from "node:events";
 import { inkan, t as s } from "@vxnsin/inkan";
 import { proxy, proxyTo } from "./index.js";
@@ -24,6 +24,17 @@ async function serve(t: { after: (fn: () => unknown) => void }, handle: (req: In
 async function listen(t: { after: (fn: () => unknown) => void }, app: { ready(): Promise<unknown>; listener: (req: IncomingMessage, res: ServerResponse) => void }) {
   await app.ready();
   return serve(t, app.listener);
+}
+
+/** One request written to the socket as it stands (fetch and inject would normalize the path); the status line's code. */
+async function rawStatus(url: string, path: string) {
+  const { hostname, port } = new URL(url);
+  const socket = net.connect(Number(port), hostname);
+  socket.write(`GET ${path} HTTP/1.1\r\nHost: ${hostname}\r\nConnection: close\r\n\r\n`);
+  let text = "";
+  socket.setEncoding("utf8");
+  for await (const chunk of socket) text += chunk;
+  return Number(text.split(" ")[1]);
 }
 
 /** An upstream that answers with what it got. */
@@ -278,4 +289,24 @@ test("in a scope registered with a prefix, and the app's hooks still run", async
     .register((scope) => void scope.register(proxy({ prefix: "/p", to: up })), { prefix: "/v1" });
   assert.equal((await app.inject({ url: "/v1/p/x" })).body.url, "/x");
   assert.equal((await app.inject({ url: "/v1/p/x", headers: { "x-block": "1" } })).status, 403);
+});
+
+test("encoded slashes, backslashes and NUL, also double-encoded, are a 400 before the upstream is asked", async (t) => {
+  const asked: string[] = [];
+  const up = await serve(t, (req, res) => {
+    asked.push(req.url!);
+    res.end("upstream");
+  });
+  const url = await listen(
+    t,
+    inkan(quiet)
+      .register(proxy({ prefix: "/p", to: up + "/public" }))
+      .get("/items/*rest", proxyTo(up, { rewrite: (p) => p.replace(/^\/items/, "/public/items") })),
+  );
+  const bad = ["/p/a%2f..%2f..%2fadmin", "/p/a%2F..%2F..%2Fadmin", "/p/..%5c..%5cadmin", "/p/a%00b", "/p/%252e%252e/admin", "/p/a%252f..%252fadmin", "/p/a%255cb", "/items/..%2f..%2fadmin"];
+  for (const path of bad) assert.equal(await rawStatus(url, path), 400, path);
+  assert.deepEqual(asked, []);
+  assert.equal(await rawStatus(url, "/p/a%20b/c%25d"), 200, "other escapes pass");
+  assert.equal(await rawStatus(url, "/items/7"), 200);
+  assert.deepEqual(asked, ["/public/a%20b/c%25d", "/public/items/7"]);
 });

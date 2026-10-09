@@ -11,3 +11,6 @@
   a client that goes away aborts the upstream request.
 - `to` fixed at setup; `rewrite` to another origin refused; `.`, `..` and backslashes in
   the path a 400 `bad-path`.
+- Security: an escaped slash, backslash or NUL in the path (`%2f`, `%5c`, `%00`, also
+  escaped twice, and `%252e`) is a 400 `bad-path`; `/p/a%2f..%2f..%2fadmin` got past the
+  dot-segment check. `proxyTo` with `rewrite` checks the path too.

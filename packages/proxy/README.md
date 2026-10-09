@@ -61,7 +61,12 @@ with `rewrite`, for `to`'s path + `rewrite(ctx.path)`.
   what a client sent.
 - **No climbing out of the mount.** A path with `.` or `..` segments, also as `%2e`, or a
   backslash, is a 400 `bad-path`: an upstream that normalizes paths would otherwise serve
-  `/legacy/../admin` from outside `to`'s path. Repeated slashes become one.
+  `/legacy/../admin` from outside `to`'s path. So is any escaped slash, backslash or NUL
+  (`%2f`, `%5c`, `%00`, in either case) and any of those or a dot escaped twice (`%252f`,
+  `%252e`, …): an upstream that decodes before it normalizes would turn
+  `/legacy/a%2f..%2f..%2fadmin` into `/admin`. A path segment that needs a literal `/` cannot
+  go through the proxy. Repeated slashes become one. `proxyTo` with `rewrite` checks the
+  request's path the same way.
 - `x-forwarded-for` gets the client's address (`ctx.ip`, so with `trustProxy` the one
   your own proxies name) appended to what came in; `x-forwarded-proto` and
   `x-forwarded-host` are set from `ctx.protocol` and the Host header, replacing what the

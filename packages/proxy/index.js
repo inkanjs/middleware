@@ -67,8 +67,16 @@ function upstreamPath(target, path, search) {
   return q < 0 ? (target.base + p || "/") + search : (target.base + p.slice(0, q) || "/") + p.slice(q);
 }
 
-/** A path the client sent that climbs out of where it was mounted: `..` or `.`, also as %2e. */
+// an escaped slash, backslash or NUL, or one of those (or a dot) escaped twice: an upstream
+// that decodes before it normalizes would climb with them
+const ENCODED = /%(?:2f|5c|00|25(?:2e|2f|5c|00))/i;
+
+/**
+ * A path the client sent that could climb out of where it was mounted: `..` or `.`, also as
+ * %2e; a slash, backslash or NUL in a segment, escaped once or twice.
+ */
 function climbs(path) {
+  if (ENCODED.test(path)) return true;
   for (const seg of path.split("/")) {
     let s = seg;
     try {
@@ -76,10 +84,12 @@ function climbs(path) {
     } catch {
       // a broken escape is not a dot segment
     }
-    if (s === "." || s === ".." || s.includes("\\")) return true;
+    if (s === "." || s === ".." || s.includes("/") || s.includes("\\") || s.includes("\0")) return true;
   }
   return false;
 }
+
+const badPath = () => new HttpProblem(400, "bad-path", "The path may not hold . or .. segments, nor an escaped slash, backslash or NUL");
 
 const isIterable = (v) => v !== null && typeof v === "object" && typeof v[Symbol.asyncIterator] === "function";
 
@@ -203,6 +213,8 @@ export function proxyTo(to, opts = {}) {
   const o = options({ ...opts, to });
   const target = targetOf(to);
   return (ctx) => {
+    // without rewrite the path is to's own; with it, the request's path ends up upstream
+    if (o.rewrite && climbs(ctx.path)) throw badPath();
     const path = o.rewrite ? upstreamPath(target, o.rewrite(ctx.path), searchOf(ctx)) : upstreamPath(target, "", searchOf(ctx));
     return forward(ctx, target, path, o);
   };
@@ -224,7 +236,7 @@ export function proxy(opts) {
         let rest = ctx.path.startsWith(mount) ? ctx.path.slice(mount === "/" ? 0 : mount.length) : "/" + ctx.params.path;
         rest = rest.replace(/\/{2,}/g, "/");
         if (rest !== "" && !rest.startsWith("/")) rest = "/" + rest;
-        if (climbs(rest)) throw new HttpProblem(400, "bad-path", "The path may not hold . or .. segments");
+        if (climbs(ctx.path) || climbs(rest)) throw badPath();
         const path = upstreamPath(target, o.rewrite ? o.rewrite(rest) : rest, searchOf(ctx));
         return forward(ctx, target, path, o);
       };
