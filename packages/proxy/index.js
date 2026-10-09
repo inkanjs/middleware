@@ -235,11 +235,8 @@ function forward(ctx, target, path, o, mount) {
         for (const [k, v] of Object.entries(out)) if (Array.isArray(v)) out[k] = v.join(", ");
         try {
           if (out.location) out.location = location(out.location, target, mount, ctx, o.rewriteLocation);
-          if (cookies?.length) {
-            // inkan has no public way to add a raw set-cookie line yet: the answer's own list
-            const answer = ctx._out?.();
-            if (answer) (answer.cookies ??= []).push(...cookies.map((c) => cookie(c, target, mount, o.cookieDomain)));
-          }
+          // a list: one set-cookie line per upstream cookie, next to the ones setCookie() made
+          if (cookies?.length) out["set-cookie"] = cookies.map((c) => cookie(c, target, mount, o.cookieDomain));
         } catch (err) {
           res.destroy();
           return reject(err); // a rewriteLocation or cookieDomain of the app's that threw
