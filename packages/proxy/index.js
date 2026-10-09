@@ -342,7 +342,7 @@ export function proxy(opts) {
       const at = prefix === "/" ? "/*path" : prefix + "/*path";
       for (const m of ["get", "post", "put", "patch", "delete"]) app[m](at, spec, handler);
     },
-    { name: "proxy" },
+    { name: "proxy", inkan: ">=0.7.0 <0.8.0" },
   );
 }
 
