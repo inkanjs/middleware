@@ -54,10 +54,17 @@ takes with `security`, as inkan always had it; the plugin checks those credentia
 Several schemes on a route are alternatives: `security: ["bearer", login.session]` takes either.
 A route asking for a scheme the plugin was not configured for is refused, never let through.
 
-A route **without** `security` still knows who is logged in when the session cookie is there
-(`ctx.user`, or undefined; a bad cookie is ignored and cleared). Give it `meta: { auth: {} }`
-to require a logged-in user anyway, or roles. `meta.auth.optional: true` makes wrong
-credentials leave `ctx.user` undefined instead of a 401; it never applies when roles are given.
+A route **without** `security` or `meta.auth` is public: it looks nobody up, so the store and
+`users.byId` are never asked, and `ctx.user` is undefined. A session cookie signed by us still
+makes its unsafe requests pass the CSRF check; one that is not is cleared. Give a route
+`meta: { auth: { optional: true } }` to know who is logged in when the cookie is there
+(`ctx.user`, or undefined; wrong credentials leave it undefined instead of a 401, and a bad
+cookie is cleared), `meta: { auth: {} }` to require a logged-in user, or roles.
+`optional` never applies when roles are given.
+
+The user is loaded once per request, before the input is read: wrong credentials, roles and
+CSRF are answered before any body is parsed. Hooks from `preHandler` on and the handler see
+`ctx.user` as the user itself.
 
 Roles: `meta.auth.roles` and `ctx.auth.require(...roles)` both need **one of** the roles.
 They come from `user.roles`, or from your `roles(user)` option.

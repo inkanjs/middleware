@@ -65,10 +65,41 @@ test("no session: a secured route is the core's 401, a public one has no user", 
   assert.deepEqual((await app.inject({ url: "/public" })).body, { user: null, method: null });
 });
 
-test("a route without security still knows the user of a session cookie", async () => {
+test("a public route with a session cookie looks nobody up: users.byId is not called", async () => {
+  const { app, users } = makeApp();
+  const { sid } = await login(app);
+  const before = users.byIds;
+  assert.deepEqual((await app.inject({ url: "/public", headers: withSid(sid) })).body, { user: null, method: null });
+  assert.equal(users.byIds, before, "no users.byId for a public route");
+  await app.inject({ url: "/account", headers: withSid(sid) });
+  assert.equal(users.byIds, before + 1, "a secured route loads the user once");
+});
+
+test("meta.auth.optional on a route without security still sees the user of a session cookie", async () => {
   const { app } = makeApp();
   const { sid } = await login(app);
-  assert.deepEqual((await app.inject({ url: "/public", headers: withSid(sid) })).body, { user: 1, method: "session" });
+  assert.deepEqual((await app.inject({ url: "/maybe", headers: withSid(sid) })).body, { user: 1, method: "session" });
+  assert.deepEqual((await app.inject({ url: "/maybe" })).body, { user: null, method: null });
+  const dead = await app.inject({ url: "/maybe", headers: withSid("garbage") });
+  assert.deepEqual(dead.body, { user: null, method: null });
+  assert.equal(cookieOf(dead, "sid"), "", "a bad cookie is cleared");
+});
+
+test("a public route still refuses a cross-site POST that carries our session cookie", async () => {
+  const { inkan } = await import("@vxnsin/inkan");
+  const users = makeUsers();
+  const plugin = auth({ secret: SECRET, users: users.source, password: { ln: 14 } });
+  const app = inkan({ log: false })
+    .register(plugin)
+    .post("/note", () => ({ ok: true }));
+  const { sid } = await login(app as never);
+  const before = users.byIds;
+  const evil = await app.inject({ method: "POST", url: "/note", headers: withSid(sid, { origin: "https://evil.example" }) });
+  assert.equal(evil.status, 403);
+  assert.equal(evil.body.type, "csrf");
+  assert.equal((await app.inject({ method: "POST", url: "/note", headers: withSid(sid, { origin: "http://localhost" }) })).status, 200);
+  assert.equal((await app.inject({ method: "POST", url: "/note", headers: { origin: "https://evil.example" } })).status, 200, "no cookie, nothing to forge");
+  assert.equal(users.byIds, before);
 });
 
 test("meta.auth on a route without security: logged in, or 401", async () => {
@@ -361,4 +392,18 @@ test("options are checked when the plugin is made", () => {
   assert.throws(() => auth({ secret: SECRET, users: makeUsers().source, jwt: { jwks: "https://idp.example/jwks", algorithms: ["HS256"] } as never }), /asymmetric/);
   assert.throws(() => auth({ secret: SECRET, users: makeUsers().source, jwt: { secret: SECRET, algorithms: ["RS256"] } as never }), /HS/);
   assert.throws(() => auth({ session: false, jwt: { jwks: "http://idp.example/jwks", algorithms: ["RS256"] }, users: makeUsers().source }), /https/);
+});
+
+test("a preHandler hook sees the user itself, not a promise, on a route that needs one", async () => {
+  const { inkan } = await import("@vxnsin/inkan");
+  const users = makeUsers();
+  const plugin = auth({ secret: SECRET, users: users.source, password: { ln: 14 } });
+  const seen: unknown[] = [];
+  const app = inkan({ log: false })
+    .register(plugin)
+    .preHandler((ctx) => void seen.push(ctx.route?.path === "/who" ? ctx.user : "public"))
+    .get("/who", { security: plugin.session }, (ctx) => ({ id: ctx.user!.id }));
+  const { sid } = await login(app as never);
+  assert.deepEqual((await app.inject({ url: "/who", headers: withSid(sid) })).body, { id: 1 });
+  assert.equal((seen.at(-1) as { id: number }).id, 1);
 });

@@ -535,7 +535,66 @@ function install(app, c) {
 
   // ---- per request ----
 
-  app.decorateRequest("user", () => undefined);
+  /**
+   * Who is asking, and whether that passes the route: the credentials it takes, roles, CSRF.
+   * Runs as the init of ctx.user on the routes that need a user, so once per request; the
+   * onRequest hook below awaits it before the input is read.
+   */
+  async function authenticate(ctx) {
+    const route = ctx.route;
+    const st = stateOf(ctx);
+    const meta = isObject(route.meta.auth) ? route.meta.auth : undefined;
+    const roles = Array.isArray(meta?.roles) ? meta.roles : [];
+    const schemes = route.security;
+    // meta.auth on a route without security: the session, when there is one
+    const candidates = schemes.length ? schemes : session ? [c.sessionScheme] : [];
+
+    let failure;
+    for (const s of candidates) {
+      let got;
+      try {
+        got = await credentials(ctx, s);
+      } catch (err) {
+        if (!(err instanceof AuthError)) throw err;
+        if (err.status >= 500) throw new HttpProblem(503, "auth-unavailable", "The credentials cannot be checked right now");
+        failure ??= { err, s };
+        continue;
+      }
+      if (got) {
+        Object.assign(st, got);
+        break;
+      }
+    }
+
+    if (!SAFE_METHODS.has(ctx.method)) {
+      if (st.cookie && !fromOurOrigin(ctx, true)) throw csrf();
+      if (!st.user && route.meta[SETS_SESSION] && !fromOurOrigin(ctx, false)) throw csrf();
+    }
+
+    if (!st.user) {
+      const needsUser = meta !== undefined && (!meta.optional || roles.length > 0);
+      const lenient = meta?.optional === true && roles.length === 0;
+      if (failure && !schemes.length && session && ctx.cookies[session.cookie] !== undefined) {
+        ctx.clearCookie(session.cookie, { path: "/", domain: session.domain }); // a dead cookie on an optional route
+      }
+      if (failure && (schemes.length > 0 || needsUser) && !lenient) {
+        const code = publicCode(failure.err);
+        throw new HttpProblem(401, code, DETAIL[code], {}, challenges(schemes.length ? schemes : [failure.s], c, code));
+      }
+      // missing credentials on a route with security: the core answers 401 right after the onRequest hooks
+      if (needsUser && !schemes.length) throw new HttpProblem(401, "unauthorized", "Log in first");
+      return undefined;
+    }
+    if (roles.length && !hasRole(st.user, roles)) throw forbidden(`Needs one of the roles ${roles.join(", ")}`);
+    return st.user;
+  }
+
+  /** The routes that look up a user: those that take credentials, and those with meta.auth. */
+  const needsAuth = (route) => route.security.length > 0 || route.meta.auth !== undefined;
+
+  // Awaited before the handler, so hooks after the input check and the handler see the user
+  // itself; a route outside needsAuth never touches the store.
+  app.decorateRequest("user", authenticate, { before: "handler", when: needsAuth });
   app.decorateRequest("auth", (ctx) => {
     const st = stateOf(ctx);
     return Object.freeze({
@@ -555,54 +614,26 @@ function install(app, c) {
     });
   });
 
+  // The checks stay before the input is read: wrong credentials are a 401 and a cross-site
+  // request a 403 before any body is parsed, and ahead of the core's own 401.
   app.onRequest(async (ctx) => {
     const route = ctx.route;
     if (!route) return; // no route matched: a 404 is coming anyway
-    const st = stateOf(ctx);
-    const meta = isObject(route.meta.auth) ? route.meta.auth : undefined;
-    const roles = Array.isArray(meta?.roles) ? meta.roles : [];
-    const schemes = route.security;
-    // a route without security still knows the logged-in user, when there is one
-    const candidates = schemes.length ? schemes : session ? [c.sessionScheme] : [];
-
-    let failure;
-    for (const s of candidates) {
-      let got;
-      try {
-        got = await credentials(ctx, s);
-      } catch (err) {
-        if (!(err instanceof AuthError)) throw err;
-        if (err.status >= 500) throw new HttpProblem(503, "auth-unavailable", "The credentials cannot be checked right now");
-        failure ??= { err, s };
-        continue;
-      }
-      if (got) {
-        Object.assign(st, got);
-        ctx.user = got.user;
-        break;
-      }
-    }
-
-    if (!SAFE_METHODS.has(ctx.method)) {
-      if (st.cookie && !fromOurOrigin(ctx, true)) throw csrf();
-      if (!st.user && route.meta[SETS_SESSION] && !fromOurOrigin(ctx, false)) throw csrf();
-    }
-
-    if (!st.user) {
-      const needsUser = meta !== undefined && (!meta.optional || roles.length > 0);
-      const lenient = meta?.optional === true && roles.length === 0;
-      if (failure && !schemes.length && session && ctx.cookies[session.cookie] !== undefined) {
-        ctx.clearCookie(session.cookie, { path: "/", domain: session.domain }); // a dead cookie on a public route
-      }
-      if (failure && (schemes.length > 0 || needsUser) && !lenient) {
-        const code = publicCode(failure.err);
-        throw new HttpProblem(401, code, DETAIL[code], {}, challenges(schemes.length ? schemes : [failure.s], c, code));
-      }
-      // missing credentials on a route with security: the core answers 401 right after this hook
-      if (needsUser && !schemes.length) throw new HttpProblem(401, "unauthorized", "Log in first");
+    if (needsAuth(route)) {
+      ctx.user = await ctx.user; // the value itself from here on, for every hook after this one
       return;
     }
-    if (roles.length && !hasRole(st.user, roles)) throw forbidden(`Needs one of the roles ${roles.join(", ")}`);
+    // A public route looks nobody up: no user, and the store untouched. A session cookie
+    // still counts for CSRF, as the browser sends it on its own: one signed by us (checked
+    // without the store) makes an unsafe request prove it comes from our pages; one that is
+    // not is cleared.
+    ctx.user = undefined;
+    const value = session ? ctx.cookies[session.cookie] : undefined;
+    if (value !== undefined) {
+      if (!readSessionId(keys, value)) ctx.clearCookie(session.cookie, { path: "/", domain: session.domain });
+      else if (!SAFE_METHODS.has(ctx.method) && !fromOurOrigin(ctx, true)) throw csrf();
+    }
+    if (!SAFE_METHODS.has(ctx.method) && route.meta[SETS_SESSION] && !fromOurOrigin(ctx, false)) throw csrf();
   });
 
   // ---- OpenAPI ----

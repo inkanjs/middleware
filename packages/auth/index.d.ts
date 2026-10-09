@@ -18,6 +18,8 @@ declare module "@vxnsin/inkan" {
      * What @inkanjs/auth asks of the caller. `roles`: at least one of them (403 otherwise).
      * On a route without `security`, `auth: {}` alone means "logged in, by session".
      * `optional`: wrong credentials leave `ctx.user` undefined instead of a 401 (never with roles).
+     * A route with neither `security` nor `auth` looks nobody up: `ctx.user` is undefined there;
+     * `auth: { optional: true }` gives it the user of a session cookie.
      */
     auth?: { roles?: string[]; optional?: boolean };
   }

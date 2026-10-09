@@ -25,17 +25,24 @@ export function makeUsers() {
     { id: 3, email: "oauth-only@example.com", roles: [], passwordHash: null, plan: "free" },
   ];
   let finds = 0;
+  let byIds = 0;
   return {
     list,
     get finds() {
       return finds;
+    },
+    get byIds() {
+      return byIds;
     },
     source: {
       find: async (login: string) => {
         finds++;
         return list.find((u) => u.email === login.toLowerCase());
       },
-      byId: async (id: unknown) => list.find((u) => u.id === Number(id)),
+      byId: async (id: unknown) => {
+        byIds++;
+        return list.find((u) => u.id === Number(id));
+      },
       setTotpSecret: async (id: unknown, secret: string | null) => {
         list.find((u) => u.id === Number(id))!.totpSecret = secret;
       },
@@ -53,6 +60,7 @@ export function makeApp(extra: Partial<AuthOptions<User>> = {}, users = makeUser
   const app = inkan({ log: false, ...appOptions })
     .register(plugin)
     .get("/public", (ctx) => ({ user: ctx.user?.id ?? null, method: ctx.auth.method ?? null }))
+    .get("/maybe", { meta: { auth: { optional: true } } }, (ctx) => ({ user: ctx.user?.id ?? null, method: ctx.auth.method ?? null }))
     .get("/account", { security: plugin.session }, (ctx) => ({ id: ctx.user!.id, plan: ctx.user!.plan }))
     .post("/account", { security: plugin.session }, (ctx) => ({ saved: ctx.user!.id }))
     .get("/admin", { security: plugin.session, meta: { auth: { roles: ["admin"] } } }, (ctx) => ({ admin: ctx.auth.require("admin").email }))
