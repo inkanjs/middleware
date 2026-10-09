@@ -221,11 +221,14 @@ function forward(ctx, target, path, o, mount) {
     if (signal.aborted) return reject(signal.reason);
     let answered = false;
     let timedOut = false;
+    let late = false; // past the deadline
+    let deadline;
     let failed; // a problem of the request body (a 413), which wins over a 502
     const req = target.client.request(
       { protocol: target.url.protocol, hostname: target.url.hostname, port: target.url.port, method, path, headers, agent: o.agent },
       (res) => {
         answered = true;
+        res.once("close", () => clearTimeout(deadline));
         const out = endToEnd(res.headers);
         const cookies = out["set-cookie"];
         delete out["set-cookie"];
@@ -253,6 +256,13 @@ function forward(ctx, target, path, o, mount) {
     );
     const stop = () => req.destroy(signal.reason);
     signal.addEventListener("abort", stop, { once: true });
+    if (o.deadline) {
+      // the whole exchange, answer included: an upstream that trickles is cut all the same
+      deadline = setTimeout(() => {
+        late = true;
+        req.destroy(new Error(`proxy: the upstream took longer than ${o.deadline} ms`));
+      }, o.deadline);
+    }
     if (o.timeout) {
       req.setTimeout(o.timeout, () => {
         timedOut = true;
@@ -262,8 +272,10 @@ function forward(ctx, target, path, o, mount) {
     req.on("error", (err) => {
       signal.removeEventListener("abort", stop);
       if (answered) return; // the answer is streaming: it ends there
+      clearTimeout(deadline);
       if (signal.aborted) return reject(signal.reason);
       if (failed || err instanceof HttpProblem) return reject(failed ?? err);
+      if (late) return reject(new HttpProblem(504, "gateway-timeout", `The upstream server did not answer within ${o.deadline} ms`));
       if (timedOut) return reject(new HttpProblem(504, "gateway-timeout", `The upstream server did not answer within ${o.timeout} ms`));
       o.onError?.(err, ctx);
       reject(new HttpProblem(502, "bad-gateway", "The upstream server could not be reached"));
@@ -285,9 +297,11 @@ function options(o) {
   if (!o || typeof o.to !== "string") throw new TypeError("proxy: give `to`, the upstream's URL");
   const timeout = o.timeout ?? 30_000;
   if (!(timeout >= 0)) throw new TypeError("proxy: timeout is in milliseconds, 0 for none");
+  const deadline = o.deadline ?? 0;
+  if (!(deadline >= 0)) throw new TypeError("proxy: deadline is in milliseconds, 0 for none");
   const cookieDomain = o.cookieDomain ?? "strip";
   if (cookieDomain !== "strip" && cookieDomain !== "keep" && typeof cookieDomain !== "function") throw new TypeError('proxy: cookieDomain is "strip", "keep" or a function');
-  return { ...o, timeout, xForwarded: o.xForwarded ?? true, rewriteLocation: o.rewriteLocation ?? true, cookieDomain };
+  return { ...o, timeout, deadline, xForwarded: o.xForwarded ?? true, rewriteLocation: o.rewriteLocation ?? true, cookieDomain };
 }
 
 /**

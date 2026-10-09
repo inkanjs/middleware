@@ -22,3 +22,5 @@
 - `rewriteLocation` (default on): a `Location` on the upstream's origin becomes the public
   path under the prefix. `cookieDomain` (default `"strip"`): `set-cookie` loses its
   `Domain`, its `Path` moves under the prefix.
+- `deadline`: the whole exchange, body included, bounded (504 `gateway-timeout` before the
+  answer, the answer cut during it); `timeout` is documented as the idle timeout it is.

@@ -25,8 +25,18 @@ export type ProxyOptions = {
   forwardCredentials?: boolean;
   /** Headers to set on the upstream request; `null` removes one. A function is asked per request. */
   headers?: Record<string, string | null> | ((ctx: Ctx) => Record<string, string | null>);
-  /** Milliseconds the upstream may stay silent: before its answer a 504, during it the answer is cut. Default 30000, 0 for none. */
+  /**
+   * Idle timeout: milliseconds the upstream may stay silent, reset by every byte. Before its
+   * answer a 504, during it the answer is cut. Default 30000, 0 for none. An upstream that
+   * trickles a byte now and then never trips it: give `deadline` for that.
+   */
   timeout?: number;
+  /**
+   * Milliseconds the whole exchange may take, the answer's body included: before the answer a
+   * 504 `gateway-timeout`, during it the answer is cut and the upstream request aborted.
+   * Default 0, none.
+   */
+  deadline?: number;
   /**
    * Sets `x-forwarded-for` (`ctx.ip`), `x-forwarded-proto` (`ctx.protocol`) and
    * `x-forwarded-host` (the request's Host, if it is a plain host[:port]). Default true.

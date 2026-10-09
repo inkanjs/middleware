@@ -398,3 +398,33 @@ test("set-cookie: Domain is dropped, a Path under to's path goes under the prefi
   const one = await inkan(quiet).get("/one", proxyTo(up + "/api")).inject({ url: "/one" });
   assert.deepEqual(one.cookies, ["s=1; Path=/api/x; HttpOnly", "r=2; path=/api", "o=3; Path=/other; Secure", "n=4"], "proxyTo: Domain dropped, no prefix to map to");
 });
+
+/** The promise, or a rejection after `ms`: a missing deadline fails the test instead of hanging it. */
+const within = <T,>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error(`still waiting after ${ms} ms`)), ms).unref())]);
+
+test("deadline: the whole exchange, however chatty; a 504 before the answer, the answer cut during it", async (t) => {
+  let upstreamClosed = 0;
+  const up = await serve(t, (req, res) => {
+    res.on("close", () => upstreamClosed++);
+    if (req.url === "/silent") return; // never answers
+    res.writeHead(200, { "content-type": "text/plain" });
+    const tick = setInterval(() => res.write("."), 20); // never silent, never done
+    res.on("close", () => clearInterval(tick));
+  });
+  const app = inkan(quiet).register(proxy({ to: up, timeout: 1000, deadline: 200 }));
+  const started = Date.now();
+  const s = await within(app.inject({ url: "/silent" }), 3000);
+  assert.equal(s.status, 504);
+  assert.equal(s.body.type, "gateway-timeout");
+  assert.ok(Date.now() - started < 900, "the deadline, not the idle timeout");
+
+  const url = await listen(t, app);
+  const res = await fetch(url + "/chatty");
+  assert.equal(res.status, 200);
+  const cut = await within(res.text().then(() => "ended", () => "cut"), 3000);
+  assert.ok(cut === "cut" || cut === "ended");
+  await within((async () => {
+    while (upstreamClosed < 2) await new Promise((r) => setTimeout(r, 10));
+  })(), 3000); // both upstream requests aborted
+  assert.throws(() => proxy({ to: up, deadline: -1 }), /deadline/);
+});

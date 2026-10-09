@@ -40,7 +40,8 @@ GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 | `rewrite` | none | `(path) => string`: the path to ask for, from the request's path (for `proxy()`, the part after the prefix) |
 | `forwardCredentials` | `false` | pass the client's `cookie` and `authorization` on (see above) |
 | `headers` | none | headers to set on the upstream request, `null` removes one; or `(ctx) => headers` |
-| `timeout` | `30000` | ms the upstream may stay silent: a 504 before its answer, the answer cut during it; `0` for none |
+| `timeout` | `30000` | idle timeout: ms the upstream may stay silent (reset by every byte): a 504 before its answer, the answer cut during it; `0` for none |
+| `deadline` | `0` (none) | ms the whole exchange may take, body included: a 504 before the answer, the answer cut during it; the upstream request is aborted |
 | `xForwarded` | `true` | `x-forwarded-for`, `-proto` and `-host` for the upstream |
 | `trustForwarded` | `false` | pass on the `x-forwarded-*` and `forwarded` that came in and append to the chain |
 | `rewriteLocation` | `true` | the upstream's `Location` on its own origin as the public path; `false`, or `(location, ctx) => string` |
@@ -108,7 +109,10 @@ with `rewrite`, for `to`'s path + `rewrite(ctx.path)`.
   prefix (`Path=/api/x` → `Path=/legacy/x`; with `to` on `/`, `Path=/` → `Path=/legacy`).
   `cookieDomain: "keep"` passes them on untouched; a function maps the domain.
 - **Errors.** An upstream that cannot be reached is a 502 problem `bad-gateway`; one that
-  stays silent past `timeout` a 504 `gateway-timeout`. Neither names the upstream's address.
+  stays silent past `timeout`, or has not answered by `deadline`, a 504 `gateway-timeout`.
+  Neither names the upstream's address. `timeout` is an idle timeout: an upstream that sends
+  a byte every few seconds never trips it, and can hold a connection for as long as it
+  likes. Give `deadline` to bound the whole exchange.
   An upstream that fails while its answer streams cuts the answer off there.
 - **Aborts.** A client that goes away (`ctx.signal`) closes the upstream request, before
   its answer and while it streams.
