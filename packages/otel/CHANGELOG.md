@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `otel()`: a SERVER span per request, named `METHOD /route/:pattern`, with the HTTP
   semantic conventions (`http.request.method`, `url.path`, `url.scheme`, `http.route`,

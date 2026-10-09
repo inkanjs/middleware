@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `proxy({ prefix, to })`: every method under a prefix to an upstream; `proxyTo(to)`: one
   route. On node:http and node:https, without dependencies.

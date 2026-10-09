@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `circuit(fn, options)`: wraps an outgoing call; while open it rejects at once with
   `CircuitOpenError` (`retryAfter`). Thrown errors and returned 5xx statuses are failures.

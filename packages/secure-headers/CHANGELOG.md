@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `secureHeaders()`: content-security-policy, strict-transport-security over HTTPS,
   x-content-type-options, x-frame-options, referrer-policy, cross-origin-opener-policy,

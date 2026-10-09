@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - The user is loaded lazily, with inkan 0.7's `decorateRequest(…, { before: "handler", when })`:
   only on routes with `security` or `meta.auth`, once per request, and `ctx.user` is the user

@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "@vxnsin/inkan": "file:../../../inkan-release-0.7"
+    "@vxnsin/inkan": "^0.7.0"
   },
   "scripts": {
     "test": "node --test test.ts"

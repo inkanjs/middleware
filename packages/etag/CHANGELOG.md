@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `etag()`: strong or weak (`weak: true`) ETags on 2xx answers to GET and HEAD, hashed
   from the bytes that are sent, before compression.

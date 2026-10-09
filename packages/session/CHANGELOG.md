@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `session()`: `ctx.session`, typed, signed with HMAC-SHA256 in the cookie, encrypted with
   AES-256-GCM (`encrypt: true`), or in a store behind a random id (`store`).
