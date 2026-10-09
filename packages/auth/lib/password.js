@@ -10,13 +10,17 @@ export const MAX_PASSWORD_BYTES = 1024;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
 export const DEFAULTS = Object.freeze({ ln: 17, r: 8, p: 1 });
-// bounds for parameters, also for the ones read back from a stored hash, so a tampered hash
-// row cannot make one verification take gigabytes or minutes
-const LIMITS = { ln: [14, 20], r: [1, 32], p: [1, 16] };
-/** scrypt needs 128 * N * r bytes; more than 1 GiB is refused. */
-const MAX_MEMORY = 2 ** 30;
+// bounds for parameters, also for the ones read back from a stored hash: at most one step
+// over the defaults, so a tampered hash row costs one verification at most 256 MiB and about
+// twice the usual time, never gigabytes or minutes. Hashing keeps to the same bounds, so
+// every hash made here can be verified.
+const LIMITS = { ln: [14, DEFAULTS.ln + 1], r: [1, DEFAULTS.r], p: [1, DEFAULTS.p + 1] };
+/** scrypt needs 128 * N * r bytes; more than 256 MiB is refused. */
+const MAX_MEMORY = 2 ** 28;
 const memory = ({ ln, r }) => 128 * 2 ** ln * r;
 const B64 = /^[A-Za-z0-9+/]+$/;
+const DUMMY_SALT = Buffer.alloc(SALT_BYTES, 7);
+const DUMMY_PASSWORD = Buffer.from("inkan-auth/dummy");
 
 function params(opts = {}) {
   const out = { ...DEFAULTS, ...opts };
@@ -26,7 +30,7 @@ function params(opts = {}) {
       throw new RangeError(`hashPassword: ${name} must be an integer from ${min} to ${max}`);
     }
   }
-  if (memory(out) > MAX_MEMORY) throw new RangeError("hashPassword: ln and r together need more than 1 GiB");
+  if (memory(out) > MAX_MEMORY) throw new RangeError("hashPassword: ln and r together need more than 256 MiB");
   return { ln: out.ln, r: out.r, p: out.p };
 }
 
@@ -98,7 +102,11 @@ export async function hashPassword(password, opts) {
 export async function verifyPassword(password, hash) {
   const parsed = parse(hash);
   const bytes = passwordBytes(password);
-  if (!parsed || !bytes) return false;
+  if (!parsed || !bytes) {
+    // as long as a real check: a broken hash row or an unusable password tells nothing by its timing
+    await derive(bytes ?? DUMMY_PASSWORD, DUMMY_SALT, DEFAULTS, KEY_BYTES).catch(() => {});
+    return false;
+  }
   let key;
   try {
     key = /** @type {Buffer} */ (await derive(bytes, parsed.salt, parsed.params, parsed.key.length));

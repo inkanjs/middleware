@@ -78,6 +78,7 @@ function configure(o) {
     users,
     store,
     password: o.password ?? {},
+    hashing: { concurrency: 4, waitMs: 1000, ...(o.hashing ?? {}) },
     roles: o.roles ?? ((u) => (Array.isArray(u?.roles) ? u.roles.filter((r) => typeof r === "string") : [])),
     publicUser: undefined,
     userSchema: o.userSchema,
@@ -244,7 +245,48 @@ function configure(o) {
     b.store = checkStore(b.store ?? memoryStore({ clock, max: 50_000 }), "bruteForce.store");
     c.bruteForce = b;
   }
+
+  for (const k of ["concurrency", "waitMs"]) {
+    const v = c.hashing[k];
+    if (!Number.isInteger(v) || v < (k === "waitMs" ? 0 : 1)) throw new TypeError(`auth: hashing.${k} must be a ${k === "waitMs" ? "non-negative" : "positive"} integer`);
+  }
   return c;
+}
+
+/**
+ * At most `max` scrypt runs at once (each takes 128 MiB and a thread of the pool); the rest
+ * wait up to `waitMs` for a free slot, then get a 503, so a burst of logins cannot exhaust
+ * the memory or starve the thread pool.
+ */
+function slots(max, waitMs) {
+  let active = 0;
+  /** @type {{ go: () => void, timer: NodeJS.Timeout }[]} */
+  const queue = [];
+  const busy = () => new HttpProblem(503, "busy", "Too many logins at once; try again in a moment", {}, { "retry-after": "1" });
+  return async function run(work) {
+    if (active < max) active++;
+    else {
+      await new Promise((resolve, reject) => {
+        const entry = {
+          go: () => resolve(undefined),
+          timer: setTimeout(() => {
+            queue.splice(queue.indexOf(entry), 1);
+            reject(busy());
+          }, waitMs),
+        };
+        queue.push(entry);
+      });
+    }
+    try {
+      return await work();
+    } finally {
+      const next = queue.shift();
+      if (next) {
+        clearTimeout(next.timer);
+        next.go(); // the slot passes on as it is
+      } else active--;
+    }
+  };
 }
 
 // ---- problems -------------------------------------------------------------------------------
@@ -314,6 +356,9 @@ function install(app, c) {
   let dummy;
   /** A hash nobody's password matches, so an unknown login costs as much as a known one. */
   const dummyHash = () => (dummy ??= hashPassword(randomToken(), c.password));
+  // made now, not by the first unknown login, which would otherwise take twice as long
+  dummyHash().catch(() => {});
+  const hashSlot = slots(c.hashing.concurrency, c.hashing.waitMs);
 
   const isSessionScheme = (s) => session !== undefined && typeof s === "object" && s.in === "cookie" && s.apiKey === session.cookie;
   const hasRole = (user, wanted) => {
@@ -650,7 +695,8 @@ function install(app, c) {
     const user = await users.find(login);
     const stored = isObject(user) && typeof user.passwordHash === "string" && user.passwordHash ? user.passwordHash : undefined;
     // an unknown login, or one without a password, costs a whole scrypt run too
-    const ok = await verifyPassword(password, stored ?? (await dummyHash()));
+    const against = stored ?? (await dummyHash());
+    const ok = await hashSlot(() => verifyPassword(password, against));
     if (!user || !stored || !ok) throw new HttpProblem(401, "invalid-credentials", "The login or the password is wrong");
     if (typeof user.totpSecret === "string" && user.totpSecret) {
       if (!code) throw new HttpProblem(401, "totp-required", "This account needs the code of its authenticator app");
@@ -658,7 +704,7 @@ function install(app, c) {
     }
     if (guard) await guard.succeeded(counters);
     if (fn(users.updatePasswordHash) && needsRehash(stored, c.password)) {
-      await users.updatePasswordHash(user.id, await hashPassword(password, c.password));
+      await users.updatePasswordHash(user.id, await hashSlot(() => hashPassword(password, c.password)));
     }
     return user;
   }
@@ -755,7 +801,7 @@ function install(app, c) {
           description: "Sets the session cookie. Accounts with TOTP also need `totp`; without it the answer is a 401 `totp-required`.",
           tags: TAGS,
           body: loginBody,
-          response: { 200: t.object({ user: c.userSchema }), 401: P, 403: P, 429: P },
+          response: { 200: t.object({ user: c.userSchema }), 401: P, 403: P, 429: P, 503: P },
           meta: { [SETS_SESSION]: true },
           examples: [unknownLogin],
         },
@@ -802,7 +848,7 @@ function install(app, c) {
           description: `A short-lived JWT for the authorization header and a refresh token for ${base}/token/refresh. For clients that are not browsers.`,
           tags: TAGS,
           body: loginBody,
-          response: { 200: tokens, 401: P, 429: P },
+          response: { 200: tokens, 401: P, 429: P, 503: P },
           examples: [unknownLogin],
         },
         async (ctx) => issueTokens(await passwordLogin(ctx, ctx.body)),

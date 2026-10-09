@@ -161,6 +161,8 @@ export interface AuthOptions<U extends AuthUser> {
   roles?: (user: U) => readonly string[];
   /** scrypt parameters for the dummy hash and for rehashing. */
   password?: ScryptParams;
+  /** At most `concurrency` (4) password checks at once; others wait up to `waitMs` (1000), then get a 503 `busy`. */
+  hashing?: { concurrency?: number; waitMs?: number };
   /**
    * Failed logins before an exponential lockout: `freeAttempts` (5) per login from one address,
    * `loginFreeAttempts` (100) per login from everywhere, `ipFreeAttempts` (50) per address (an

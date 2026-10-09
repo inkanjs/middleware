@@ -114,8 +114,14 @@ cookie or token signed with it can still be alive (the session `maxAge`).
 
 `POST /auth/login { login, password, totp? }` → `200 { user }` and the cookie.
 
-- Unknown logins and users without `passwordHash` are checked against a dummy hash, so the
-  answer takes as long as for a real user, and all three failures read the same.
+- Unknown logins and users without `passwordHash` are checked against a dummy hash (made when
+  the plugin starts), so the answer takes as long as for a real user, and all three failures
+  read the same. A stored hash that cannot be parsed costs a full scrypt run too.
+- A stored hash may ask for at most one step over the default cost (`ln` 18, `r` 8, `p` 2,
+  256 MiB); anything above is refused unchecked, so a tampered row cannot make one login take
+  gigabytes. `hashPassword` keeps to the same bounds.
+- At most `hashing.concurrency` (4) password checks run at once; the rest wait up to
+  `hashing.waitMs` (1 s) for a slot, then get a 503 `busy` with `retry-after`.
 - **Brute force:** three counters, each with an exponential lockout once its free failures
   are used up (1s, 2s, 4s, … up to `maxDelay`, 15 minutes; 429 `too-many-attempts` with
   `retry-after`):
@@ -291,6 +297,7 @@ then a read and a write, atomic only within one process.
 | `userSchema`   | matches the default | The contract of `publicUser`. |
 | `roles`        | `user.roles`       | A user's roles. |
 | `password`     | `{ ln: 17, r: 8, p: 1 }` | scrypt cost for the dummy hash and rehashing. |
+| `hashing`      | `{ concurrency: 4, waitMs: 1000 }` | Password checks at once, and how long others wait. |
 | `bruteForce`   | on                 | `{ freeAttempts: 5, loginFreeAttempts: 100, ipFreeAttempts: 50, maxDelay: 900, window: 900, store }` or `false`. |
 
 ## The building blocks

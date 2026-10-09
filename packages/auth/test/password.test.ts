@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes, scryptSync } from "node:crypto";
 import { readFileSync } from "node:fs";
+
+const b64 = (b: Buffer) => b.toString("base64").replace(/=+$/, "");
 import { AuthError } from "../lib/errors.js";
 import { DEFAULTS, hashPassword, needsRehash, verifyPassword } from "../lib/password.js";
 
@@ -65,16 +68,39 @@ test("needsRehash spots other parameters and malformed hashes", async () => {
   const hash = await hashPassword("pw", fast);
   assert.equal(needsRehash(hash, fast), false);
   assert.equal(needsRehash(hash), true); // the defaults are ln=17
-  assert.equal(needsRehash(hash, { ln: 14, r: 16 }), true);
+  assert.equal(needsRehash(hash, { ln: 14, r: 4 }), true);
   assert.equal(needsRehash(hash, { ln: 14, p: 2 }), true);
   assert.equal(needsRehash("garbage"), true);
 });
 
 test("parameters are bounded", async () => {
   await assert.rejects(hashPassword("pw", { ln: 10 }), RangeError);
-  await assert.rejects(hashPassword("pw", { ln: 21 }), RangeError);
-  await assert.rejects(hashPassword("pw", { ln: 20, r: 16 }), /1 GiB/);
+  await assert.rejects(hashPassword("pw", { ln: 19 }), RangeError);
+  await assert.rejects(hashPassword("pw", { r: 9 }), RangeError);
+  await assert.rejects(hashPassword("pw", { p: 3 }), RangeError);
   await assert.rejects(hashPassword("pw", { ln: 14.5 }), RangeError);
+});
+
+test("a stored hash asking for more than one step over the defaults is refused, even when it matches", async () => {
+  const salt = randomBytes(16);
+  const make = (N: number, r: number, p: number) =>
+    "$scrypt$ln=" + Math.log2(N) + ",r=" + r + ",p=" + p + "$" + b64(salt) + "$" + b64(scryptSync("pw", salt, 32, { N, r, p, maxmem: 2 ** 30 }));
+  assert.equal(await verifyPassword("pw", make(2 ** 14, 8, 2)), true, "within the bounds");
+  assert.equal(await verifyPassword("pw", make(2 ** 14, 9, 1)), false, "r over the default");
+  assert.equal(await verifyPassword("pw", make(2 ** 14, 1, 3)), false, "p two over the default");
+});
+
+test("an unparseable hash takes as long as a real check, not no time at all", async () => {
+  const real = await hashPassword("pw");
+  const time = async (hash: string) => {
+    const started = performance.now();
+    await verifyPassword("wrong", hash);
+    return performance.now() - started;
+  };
+  await time(real);
+  const known = (await time(real)) + (await time(real));
+  const broken = (await time("garbage")) + (await time("$scrypt$nonsense"));
+  assert.ok(broken > known * 0.4, `a broken hash took ${broken.toFixed(0)}ms against ${known.toFixed(0)}ms`);
 });
 
 test("passwords over 1024 bytes are refused, by bytes not characters", async () => {

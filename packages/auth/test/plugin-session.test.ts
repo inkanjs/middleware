@@ -338,6 +338,20 @@ test("brute force: counters live in a store of their own; a locked address write
   assert.equal((await app.inject({ url: "/account", headers: withSid(sid) })).status, 200, "the session survived the flood");
 });
 
+test("at most hashing.concurrency password checks at once; the rest wait briefly, then 503", async () => {
+  const { app } = makeApp({ hashing: { concurrency: 1, waitMs: 0 }, bruteForce: false });
+  const results = await Promise.all(
+    Array.from({ length: 4 }, () => app.inject({ method: "POST", url: "/auth/login", body: { login: "bob@example.com", password: "correct horse" } })),
+  );
+  const statuses = results.map((r) => r.status);
+  assert.ok(statuses.includes(200), statuses.join());
+  const busy = results.find((r) => r.status === 503);
+  assert.ok(busy, statuses.join());
+  assert.equal(busy.body.type, "busy");
+  assert.equal(busy.headers["retry-after"], "1");
+  assert.throws(() => makeApp({ hashing: { concurrency: 0 } }), /hashing.concurrency/);
+});
+
 test("options are checked when the plugin is made", () => {
   assert.throws(() => auth({ secret: "short", users: makeUsers().source }), /32 bytes/);
   assert.throws(() => auth({ users: makeUsers().source }), /sessions need a secret/);
