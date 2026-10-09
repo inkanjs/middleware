@@ -48,15 +48,24 @@ export interface UserSource<U> {
   updatePasswordHash?(id: any, hash: string): Awaitable<unknown>;
 }
 
-/** Any key-value store with a time to live (Redis, a database table, …). */
+/**
+ * Any key-value store with a time to live (Redis, a database table, …). A store shared by
+ * several processes should have `take` and `add`, each one atomic step of the store (Redis
+ * GETDEL and SET … NX EX); without them both are a read and a write, atomic in one process only.
+ */
 export interface AuthStore {
   get(key: string): Awaitable<unknown>;
   set(key: string, value: unknown, ttlSeconds: number): Awaitable<unknown>;
   delete(key: string): Awaitable<unknown>;
+  /** Reads and removes in one step: the value, or undefined when there was none. */
+  take?(key: string): Awaitable<unknown>;
+  /** Writes only when the key is free, and says whether it did. */
+  add?(key: string, value: unknown, ttlSeconds: number): Awaitable<boolean>;
 }
 
-export function memoryStore(options?: { max?: number; clock?: () => number }): AuthStore & {
+export function memoryStore(options?: { max?: number; clock?: () => number }): Required<AuthStore> & {
   take(key: string): unknown;
+  add(key: string, value: unknown, ttlSeconds: number): boolean;
   readonly size: number;
 };
 
@@ -74,7 +83,15 @@ export interface SessionOptions {
   store?: AuthStore;
 }
 
-export type JwtIssueOptions = { expiresIn?: Duration; refreshTtl?: Duration; issuer?: string; audience?: string };
+export type JwtIssueOptions = {
+  expiresIn?: Duration;
+  /** How long one refresh token lasts unused. Default 30 days. */
+  refreshTtl?: Duration;
+  /** How long the refresh tokens of one login last at most, however often they rotate. Default 30 days. */
+  refreshMaxAge?: Duration;
+  issuer?: string;
+  audience?: string;
+};
 
 export type JwtOptions<U> = {
   /** Turns verified claims into your user. Default: users.byId(claims.sub). */

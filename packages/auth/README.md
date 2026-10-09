@@ -146,7 +146,7 @@ algorithm family. If the provider's keys cannot be fetched, the answer is a 503.
 
 ### Issuing your own
 
-`jwt: { issue: { expiresIn: "15m", refreshTtl: "30d" } }` adds:
+`jwt: { issue: { expiresIn: "15m", refreshTtl: "30d", refreshMaxAge: "30d" } }` adds:
 
 - `POST /auth/token { login, password, totp? }` → `{ accessToken, tokenType, expiresIn, refreshToken }`,
   with the same brute-force rules as `/login`. For clients that are not browsers.
@@ -155,8 +155,14 @@ algorithm family. If the provider's keys cannot be fetched, the answer is a 503.
   one of the two users is a thief.
 - `POST /auth/logout { refreshToken }` revokes that family.
 
+The tokens of one login are a family. It ends `refreshMaxAge` (30 days) after the login, however
+often it rotates; then the user logs in again. A revoked family stays revoked: the family record
+is written once, at login, and after that only to revoke it, and a refresh reads it again right
+before it issues anything.
+
 Access tokens are HS256 with a key derived from `secret` (never the secret itself), with
-`iss`, `aud`, `sub`, `jti` and a `kid`. Refresh tokens are random and stored hashed.
+`iss`, `aud`, `sub`, `jti`, `auth_time` (the login) and a `kid`. Refresh tokens are random and
+stored hashed.
 
 ## API keys and basic auth
 
@@ -215,16 +221,24 @@ verifier, verifies the id_token for OpenID, and hands `onLogin` the profile:
 
 ## Store
 
-Sessions, refresh tokens, login counters and TOTP steps live in `store`, by default in memory,
-per process. For several processes, give a shared one; it needs three methods:
+Sessions, refresh tokens and TOTP steps live in `store`, by default in memory, per process.
+For several processes, give a shared one:
 
 ```js
 const store = {
   get: (key) => redis.get(key).then((v) => (v ? JSON.parse(v) : undefined)),
   set: (key, value, ttlSeconds) => redis.set(key, JSON.stringify(value), "EX", ttlSeconds),
   delete: (key) => redis.del(key),
+  // these two must each be ONE atomic step of the store:
+  take: (key) => redis.getdel(key).then((v) => (v ? JSON.parse(v) : undefined)),
+  add: (key, value, ttlSeconds) => redis.set(key, JSON.stringify(value), "EX", ttlSeconds, "NX").then((r) => r === "OK"),
 };
 ```
+
+`take(key)` reads and removes; `add(key, value, ttl)` writes only when the key is free and
+says whether it did. They are what makes a refresh token, a recovery code or a pending TOTP
+secret usable once across processes. A store without them still works, but those steps are
+then a read and a write, atomic only within one process.
 
 `memoryStore({ max })` keeps at most `max` entries (100 000), dropping the oldest first.
 
@@ -242,7 +256,7 @@ const store = {
 | `oauth`        | off                | See above. |
 | `routes`       | `"/auth"`          | Where the routes go; `false` for none. |
 | `origins`      | `[]`               | Other origins of yours for the CSRF check. |
-| `store`        | `memoryStore()`    | `get`, `set(key, value, ttl)`, `delete`. |
+| `store`        | `memoryStore()`    | `get`, `set(key, value, ttl)`, `delete`, and atomic `take`, `add` when shared. |
 | `publicUser`   | `{ id, roles }`    | What `/login` and `/me` show. |
 | `userSchema`   | matches the default | The contract of `publicUser`. |
 | `roles`        | `user.roles`       | A user's roles. |
@@ -266,9 +280,10 @@ Tested against the official vectors (RFC 7515, 8037, 6238, 4226, 4648, 7636).
 
 - **A process-local store is per process.** Behind several processes, use a shared store, or
   sessions, lockouts and refresh rotation do not hold across them.
-- **Refresh rotation is atomic within a process only.** Across processes two uses of one token
-  at the same moment may both pass unless your store serializes them. A client that sends the
-  same refresh token twice at once loses its family (by design: it looks like theft).
+- **Refresh rotation is atomic across processes only with a store that has an atomic `add`.**
+  Without it, two uses of one token at the same moment in two processes may both pass. A
+  client that sends the same refresh token twice at once loses its family (by design: it
+  looks like theft).
 - **Access tokens cannot be revoked** before they expire; keep `expiresIn` short. Sessions
   can: logout deletes them on the server.
 - **No "log out everywhere"**: sessions are not indexed by user. After a password change,

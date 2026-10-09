@@ -40,6 +40,9 @@ function checkStore(store, what) {
   if (!isObject(store) || !fn(store.get) || !fn(store.set) || !fn(store.delete)) {
     throw new TypeError(`auth: ${what} must have get(key), set(key, value, ttlSeconds) and delete(key)`);
   }
+  if ((store.take !== undefined && !fn(store.take)) || (store.add !== undefined && !fn(store.add))) {
+    throw new TypeError(`auth: ${what}: take(key) and add(key, value, ttlSeconds) are functions when given`);
+  }
   return store;
 }
 
@@ -156,6 +159,8 @@ function configure(o) {
       c.issue = {
         expiresIn: seconds(i.expiresIn ?? 900, "jwt.issue.expiresIn"),
         refreshTtl: seconds(i.refreshTtl ?? 30 * 86400, "jwt.issue.refreshTtl"),
+        // a family of refresh tokens ends this long after the login, however often it rotates
+        refreshMaxAge: seconds(i.refreshMaxAge ?? 30 * 86400, "jwt.issue.refreshMaxAge"),
         issuer,
         audience: i.audience ?? issuer,
       };
@@ -258,6 +263,26 @@ export function auth(options) {
 function install(app, c) {
   const { clock, keys, users, store, session } = c;
   const lock = keyLock();
+  /** Reads and removes in one step: the store's own take, or a read and a delete under the process lock. */
+  const take = (s, key) =>
+    fn(s.take)
+      ? s.take(key)
+      : lock("take:" + key, async () => {
+          const v = await s.get(key);
+          if (v !== undefined) await s.delete(key);
+          return v;
+        });
+  /** Writes only when the key is free, true when it did: the store's own add, or a read and a write under the process lock. */
+  const add = async (s, key, value, ttl) =>
+    fn(s.add)
+      ? (await s.add(key, value, ttl)) === true
+      : lock("add:" + key, async () => {
+          const v = await s.get(key);
+          if (v !== undefined && v !== null) return false;
+          await s.set(key, value, ttl);
+          return true;
+        });
+  const ttlUntil = (ms) => Math.max(1, Math.ceil((ms - clock()) / 1000));
   /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined }>} */
   const states = new WeakMap();
   const stateOf = (ctx) => {
@@ -587,45 +612,71 @@ function install(app, c) {
     return user;
   }
 
-  async function issueTokens(user, family = randomToken(16)) {
+  // A login starts a family of refresh tokens. The family record is written once, when the
+  // family is made (add: never over another), and afterwards only ever to revoke it; issuing
+  // never writes it, so a revocation cannot be undone by a refresh running at the same time.
+  // A family lives refreshMaxAge from the login, however often its tokens rotate.
+
+  /** @param {{ id: string, at: number, exp: number }} [family] the family to continue; a new one when not given */
+  async function issueTokens(user, family) {
     const now = clock();
+    if (!family) {
+      family = { id: randomToken(16), at: now, exp: now + c.issue.refreshMaxAge * 1000 };
+      const made = await add(store, "f:" + family.id, { u: user.id, revoked: false, at: family.at, exp: family.exp }, c.issue.refreshMaxAge);
+      if (!made) throw new Error("auth: a new refresh token family found its id taken");
+    }
     const [key] = keys;
     const accessToken = signJwt(
-      { uid: user.id, use: "access" },
+      { uid: user.id, use: "access", auth_time: Math.floor(family.at / 1000) },
       { algorithm: "HS256", secret: key.jwt, kid: key.kid, expiresIn: c.issue.expiresIn, issuer: c.issue.issuer, audience: c.issue.audience, subject: String(user.id), jwtId: randomToken(16), now },
     );
     const refreshToken = randomToken(32);
-    const ttl = c.issue.refreshTtl;
-    await store.set("r:" + hashToken(refreshToken), { f: family, u: user.id, used: false, exp: now + ttl * 1000 }, ttl);
-    await store.set("f:" + family, { u: user.id, revoked: false }, ttl);
+    const exp = Math.min(now + c.issue.refreshTtl * 1000, family.exp);
+    await store.set("r:" + hashToken(refreshToken), { f: family.id, u: user.id, exp }, ttlUntil(exp));
     return { accessToken, tokenType: "Bearer", expiresIn: c.issue.expiresIn, refreshToken };
   }
 
   const badRefresh = () => new HttpProblem(401, "invalid-credentials", "The refresh token is not valid");
+  const revokedRefresh = () => new HttpProblem(401, "token-revoked", "This refresh token was revoked");
+
+  /** The family record while it may still issue tokens, else null. */
+  async function liveFamily(id) {
+    const f = await store.get("f:" + id);
+    return isObject(f) && f.revoked === false && typeof f.exp === "number" && f.exp > clock() && typeof f.at === "number" ? f : null;
+  }
+
+  /** Marks a family revoked until it would have ended anyway: a tombstone no issue overwrites. */
+  async function revokeFamily(id) {
+    const f = await store.get("f:" + id);
+    const exp = isObject(f) && typeof f.exp === "number" ? f.exp : clock() + c.issue.refreshMaxAge * 1000;
+    await store.set("f:" + id, { ...(isObject(f) ? f : {}), revoked: true, exp }, ttlUntil(exp));
+  }
 
   /** One use per refresh token. A second use means it was stolen: its whole family is revoked. */
   async function refresh(token) {
-    const key = "r:" + hashToken(token);
-    return lock(key, async () => {
-      const rec = await store.get(key);
-      if (!isObject(rec) || typeof rec.exp !== "number" || rec.exp <= clock()) throw badRefresh();
-      const familyKey = "f:" + rec.f;
-      const family = await store.get(familyKey);
-      if (!isObject(family) || family.revoked) throw new HttpProblem(401, "token-revoked", "This refresh token was revoked");
-      if (rec.used) {
-        await store.set(familyKey, { ...family, revoked: true }, c.issue.refreshTtl);
+    const hash = hashToken(token);
+    const rec = await store.get("r:" + hash);
+    if (!isObject(rec) || typeof rec.exp !== "number" || rec.exp <= clock() || typeof rec.f !== "string") throw badRefresh();
+    // one family at a time in this process: a logout and a refresh of it never interleave
+    return lock("f:" + rec.f, async () => {
+      if (!(await liveFamily(rec.f))) throw revokedRefresh();
+      // the token's one use, claimed in a single step of the store: two processes never both get it
+      if (!(await add(store, "u:" + hash, true, ttlUntil(rec.exp)))) {
+        await revokeFamily(rec.f);
         throw new HttpProblem(401, "token-reused", "This refresh token was used before, so every token made from it is revoked");
       }
-      await store.set(key, { ...rec, used: true }, Math.max(1, Math.ceil((rec.exp - clock()) / 1000)));
       const user = await users.byId(rec.u);
       if (!user) throw badRefresh();
-      return issueTokens(user, rec.f);
+      // read again right before issuing: revoked in the meantime (by another process) issues nothing
+      const family = await liveFamily(rec.f);
+      if (!family) throw revokedRefresh();
+      return issueTokens(user, { id: rec.f, at: family.at, exp: family.exp });
     });
   }
 
   async function revokeRefresh(token) {
     const rec = await store.get("r:" + hashToken(token));
-    if (isObject(rec)) await store.set("f:" + rec.f, { u: rec.u, revoked: true }, c.issue.refreshTtl);
+    if (isObject(rec) && typeof rec.f === "string") await lock("f:" + rec.f, () => revokeFamily(rec.f));
   }
 
   if (c.routes !== false) defineRoutes();

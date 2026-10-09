@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { inkan } from "@vxnsin/inkan";
-import { auth, verifyJwt } from "../index.js";
+import { auth, memoryStore, verifyJwt, type AuthOptions, type AuthStore } from "../index.js";
 import { totp } from "../lib/totp.js";
 import { FAST, SECRET, clock, cookieOf, login, makeApp, makeUsers, type User } from "./app.ts";
 
-function tokenApp(users = makeUsers()) {
-  const plugin = auth<User>({ secret: SECRET, users: users.source, password: FAST, clock: () => clock.t, jwt: { issue: { expiresIn: "5m" } } });
+function tokenApp(users = makeUsers(), extra: Partial<AuthOptions<User>> = {}, issue: Record<string, unknown> = {}) {
+  const plugin = auth<User>({ secret: SECRET, users: users.source, password: FAST, clock: () => clock.t, jwt: { issue: { expiresIn: "5m", ...issue } }, ...extra });
   const app = inkan({ log: false })
     .register(plugin)
     .get("/me", { security: "bearer" }, (ctx) => ({ id: ctx.user!.id, method: ctx.auth.method }))
@@ -85,6 +85,83 @@ test("refresh: two requests with the same token at once, only one wins", async (
   const first = await getTokens(app);
   const [a, b] = await Promise.all([refresh(app, first.refreshToken), refresh(app, first.refreshToken)]);
   assert.deepEqual([a.status, b.status].sort(), [200, 401]);
+});
+
+test("refresh: a logout during a refresh stays a logout; the refresh never undoes the revocation", async () => {
+  const users = makeUsers();
+  // the refresh waits in users.byId, after its checks and before it issues: the logout comes then
+  let gate: Promise<void> | undefined;
+  let reached!: () => void;
+  const atGate = new Promise<void>((r) => (reached = r));
+  const byId = users.source.byId;
+  users.source.byId = async (id: unknown) => {
+    if (gate) {
+      reached();
+      await gate;
+    }
+    return byId(id);
+  };
+  const { app } = tokenApp(users);
+  const first = await getTokens(app);
+  let open!: () => void;
+  gate = new Promise((r) => (open = r));
+  const rotating = refresh(app, first.refreshToken);
+  await atGate;
+  const out = app.inject({ method: "POST", url: "/auth/logout", body: { refreshToken: first.refreshToken } });
+  await new Promise((r) => setTimeout(r, 20));
+  gate = undefined;
+  open();
+  const rotated = await rotating;
+  assert.equal((await out).status, 204);
+  assert.equal(rotated.status, 200);
+  const next = await refresh(app, rotated.body.refreshToken);
+  assert.equal(next.status, 401, "the family was revoked, whatever the refresh did meanwhile");
+  assert.equal(next.body.type, "token-revoked");
+});
+
+test("refresh: two processes sharing a store, the same token at once: only one gets new tokens", async () => {
+  const store = memoryStore();
+  const users = makeUsers();
+  const a = tokenApp(users, { store }).app;
+  const b = tokenApp(users, { store }).app;
+  for (let i = 0; i < 5; i++) {
+    const first = await getTokens(a);
+    const results = await Promise.all([refresh(a, first.refreshToken), refresh(b, first.refreshToken)]);
+    assert.deepEqual(results.map((r) => r.status).sort(), [200, 401], `round ${i}`);
+  }
+});
+
+test("refresh: the family record is written once, at login, not on every rotation", async () => {
+  const base = memoryStore();
+  const writes: string[] = [];
+  const store: AuthStore = {
+    get: (k) => base.get(k),
+    set: (k, v, ttl) => (writes.push(k), base.set(k, v, ttl)),
+    delete: (k) => base.delete(k),
+    add: (k, v, ttl) => (writes.push(k), base.add(k, v, ttl)),
+  };
+  const { app } = tokenApp(makeUsers(), { store });
+  let t = await getTokens(app);
+  for (let i = 0; i < 3; i++) t = (await refresh(app, t.refreshToken)).body;
+  assert.equal(writes.filter((k) => k.startsWith("f:")).length, 1);
+});
+
+test("refresh: a family ends refreshMaxAge after the login, however often it rotates", async () => {
+  const start = clock.t;
+  try {
+    const { app } = tokenApp(makeUsers(), {}, { refreshTtl: "2d", refreshMaxAge: "3d" });
+    let t = await getTokens(app);
+    for (let day = 1; day <= 2; day++) {
+      clock.t += 86400_000;
+      const res = await refresh(app, t.refreshToken);
+      assert.equal(res.status, 200, `day ${day}`);
+      t = res.body;
+    }
+    clock.t += 86400_000;
+    assert.equal((await refresh(app, t.refreshToken)).status, 401, "three days after the login, over");
+  } finally {
+    clock.t = start;
+  }
 });
 
 test("refresh tokens expire, and logout with one revokes its family", async () => {
