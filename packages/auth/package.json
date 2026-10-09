@@ -1,0 +1,52 @@
+{
+  "name": "@inkanjs/auth",
+  "version": "0.1.0",
+  "description": "Authentication for inkan without dependencies: JWT, passwords, TOTP and OAuth on node:crypto alone.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/auth"
+  },
+  "keywords": [
+    "inkan",
+    "auth",
+    "jwt",
+    "jwks",
+    "oauth",
+    "oidc",
+    "pkce",
+    "totp",
+    "scrypt"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "lib/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.7.0"
+  },
+  "devDependencies": {
+    "@vxnsin/inkan": "file:../../../inkan-release-0.7"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
