@@ -94,7 +94,67 @@ function climbs(path) {
 
 const badPath = () => new HttpProblem(400, "bad-path", "The path may not hold . or .. segments, nor an escaped slash, backslash or NUL");
 
-const isIterable = (v) => v !== null && typeof v === "object" && typeof v[Symbol.asyncIterator] === "function";
+/**
+ * A path on the upstream as the client sees it: `to`'s path swapped for the mount. Undefined
+ * when it is not under `to`'s path, or there is no mount (`proxyTo`) to map it to.
+ */
+function publicPath(target, mount, path) {
+  if (mount === undefined) return undefined;
+  const base = target.base;
+  if (base ? path !== base && !path.startsWith(base + "/") : !path.startsWith("/")) return undefined;
+  const rest = path.slice(base.length);
+  const pre = mount === "/" ? "" : mount;
+  return rest === "/" || rest === "" ? pre || "/" : pre + rest;
+}
+
+/** The upstream's Location, as the client should follow it. */
+function location(loc, target, mount, ctx, opt) {
+  if (typeof opt === "function") return String(opt(loc, ctx));
+  if (!opt) return loc;
+  const absolute = ABSOLUTE.test(loc) || loc.startsWith("//");
+  if (!absolute && !loc.startsWith("/")) return loc; // relative to where the client is: right as it is
+  let u;
+  try {
+    u = new URL(loc, target.url);
+  } catch {
+    return loc;
+  }
+  if (u.origin !== target.origin) return loc; // another server: not this proxy's to say
+  const rest = u.search + u.hash;
+  if (mount === undefined) return absolute ? u.pathname + rest : loc; // proxyTo: no more than the origin dropped
+  const p = publicPath(target, mount, u.pathname);
+  return p === undefined ? loc : p + rest;
+}
+
+/** An upstream cookie for the public host: Domain dropped (or mapped), Path under the mount. */
+function cookie(c, target, mount, mode) {
+  if (mode === "keep") return c;
+  const [pair, ...attrs] = c.split(";");
+  const out = [pair];
+  for (const raw of attrs) {
+    const a = raw.trim();
+    if (!a) continue;
+    const eq = a.indexOf("=");
+    const name = (eq < 0 ? a : a.slice(0, eq)).trim().toLowerCase();
+    const value = eq < 0 ? "" : a.slice(eq + 1).trim();
+    if (name === "domain") {
+      const d = typeof mode === "function" ? mode(value) : "";
+      if (typeof d === "string" && /^[a-z0-9.-]+$/i.test(d)) out.push(`Domain=${d}`);
+      continue;
+    }
+    if (name === "path") {
+      const p = publicPath(target, mount, value);
+      if (p !== undefined) {
+        out.push(`Path=${p}`);
+        continue;
+      }
+    }
+    out.push(a);
+  }
+  return out.join("; ");
+}
+
+const isIterable =(v) => v !== null && typeof v === "object" && typeof v[Symbol.asyncIterator] === "function";
 
 /** The search part of the request's URL, as it came. */
 function searchOf(ctx) {
@@ -111,7 +171,7 @@ function searchOf(ctx) {
  * Sends the request on and resolves with the upstream's answer as a streamed reply, or
  * rejects with a 502 or 504 problem.
  */
-function forward(ctx, target, path, o) {
+function forward(ctx, target, path, o, mount) {
   const raw = ctx.rawHeaders;
   const headers = endToEnd(raw);
   delete headers.host;
@@ -170,9 +230,16 @@ function forward(ctx, target, path, o) {
         const cookies = out["set-cookie"];
         delete out["set-cookie"];
         for (const [k, v] of Object.entries(out)) if (Array.isArray(v)) out[k] = v.join(", ");
-        if (cookies?.length) {
-          const answer = ctx._out?.();
-          if (answer) (answer.cookies ??= []).push(...cookies);
+        try {
+          if (out.location) out.location = location(out.location, target, mount, ctx, o.rewriteLocation);
+          if (cookies?.length) {
+            // inkan has no public way to add a raw set-cookie line yet: the answer's own list
+            const answer = ctx._out?.();
+            if (answer) (answer.cookies ??= []).push(...cookies.map((c) => cookie(c, target, mount, o.cookieDomain)));
+          }
+        } catch (err) {
+          res.destroy();
+          return reject(err); // a rewriteLocation or cookieDomain of the app's that threw
         }
         res.once("close", () => signal.removeEventListener("abort", stop));
         const status = res.statusCode ?? 502;
@@ -218,7 +285,9 @@ function options(o) {
   if (!o || typeof o.to !== "string") throw new TypeError("proxy: give `to`, the upstream's URL");
   const timeout = o.timeout ?? 30_000;
   if (!(timeout >= 0)) throw new TypeError("proxy: timeout is in milliseconds, 0 for none");
-  return { ...o, timeout, xForwarded: o.xForwarded ?? true };
+  const cookieDomain = o.cookieDomain ?? "strip";
+  if (cookieDomain !== "strip" && cookieDomain !== "keep" && typeof cookieDomain !== "function") throw new TypeError('proxy: cookieDomain is "strip", "keep" or a function');
+  return { ...o, timeout, xForwarded: o.xForwarded ?? true, rewriteLocation: o.rewriteLocation ?? true, cookieDomain };
 }
 
 /**
@@ -256,7 +325,7 @@ export function proxy(opts) {
         if (rest !== "" && !rest.startsWith("/")) rest = "/" + rest;
         if (climbs(ctx.path) || climbs(rest)) throw badPath();
         const path = upstreamPath(target, o.rewrite ? o.rewrite(rest) : rest, searchOf(ctx));
-        return forward(ctx, target, path, o);
+        return forward(ctx, target, path, o, mount);
       };
       const spec = { body: t.stream(), hidden: o.hidden ?? true, meta: o.meta };
       const at = prefix === "/" ? "/*path" : prefix + "/*path";

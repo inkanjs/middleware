@@ -38,6 +38,21 @@ export type ProxyOptions = {
    * cannot pose as another address. Set true only behind proxies of your own that set them.
    */
   trustForwarded?: boolean;
+  /**
+   * The upstream's `Location`, for the client. Default true: one on `to`'s origin (absolute,
+   * or a path) under `to`'s path becomes the public path under the prefix
+   * (`http://legacy:8080/api/login` → `/legacy/login`); with `proxyTo` only the origin is
+   * dropped. Other hosts, paths outside `to`'s path and relative references are left as
+   * they are. `false` passes it on untouched; a function is asked for every one.
+   */
+  rewriteLocation?: boolean | ((location: string, ctx: Ctx) => string);
+  /**
+   * The `Domain` of the upstream's `set-cookie`. Default `"strip"`: dropped, so the cookie
+   * belongs to the public host, and a `Path` under `to`'s path is moved under the prefix.
+   * `"keep"` passes every cookie on untouched. A function maps the domain (and the path is
+   * moved as for `"strip"`); an empty string drops it.
+   */
+  cookieDomain?: "strip" | "keep" | ((domain: string) => string);
   /** The agent for the upstream connections (keep-alive, TLS options). Default node's global one. */
   agent?: Agent | false;
   /** For `proxy()`: keep its routes out of the docs and the OpenAPI document. Default true. */

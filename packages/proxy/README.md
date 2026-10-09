@@ -43,6 +43,8 @@ GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 | `timeout` | `30000` | ms the upstream may stay silent: a 504 before its answer, the answer cut during it; `0` for none |
 | `xForwarded` | `true` | `x-forwarded-for`, `-proto` and `-host` for the upstream |
 | `trustForwarded` | `false` | pass on the `x-forwarded-*` and `forwarded` that came in and append to the chain |
+| `rewriteLocation` | `true` | the upstream's `Location` on its own origin as the public path; `false`, or `(location, ctx) => string` |
+| `cookieDomain` | `"strip"` | `set-cookie`: drop `Domain` and move `Path` under the prefix; `"keep"`, or `(domain) => string` |
 | `agent` | node's global agent | a `http.Agent` / `https.Agent`, for keep-alive or TLS options |
 | `hidden` | `true` | for `proxy()`: keep its routes out of the docs and OpenAPI |
 | `meta` | none | for `proxy()`: `meta` of its routes, for other plugins (`ctx.route.meta`) |
@@ -95,6 +97,16 @@ with `rewrite`, for `to`'s path + `rewrite(ctx.path)`.
   names, `keep-alive`, `transfer-encoding`, `upgrade`, `te`, `trailer` and every
   `proxy-*`. `host` is the upstream's. Every `set-cookie` of the upstream is passed on as
   its own header.
+- **Redirects.** A `Location` on the upstream's own origin, absolute
+  (`http://legacy:8080/api/login`) or a path (`/api/login`), under `to`'s path, becomes the
+  public path under the prefix (`/legacy/login`): a relative reference, so the browser stays
+  on the host it asked. `proxyTo` only drops the upstream's origin, as it has no prefix to map
+  to. A `Location` to another host, outside `to`'s path, or relative is passed on as it is;
+  with a `rewrite` the reverse mapping is yours to give as a `rewriteLocation` function.
+- **Cookies.** The upstream's `set-cookie` loses its `Domain`, so the cookie binds to the
+  public host and not to an internal name, and a `Path` under `to`'s path moves under the
+  prefix (`Path=/api/x` → `Path=/legacy/x`; with `to` on `/`, `Path=/` → `Path=/legacy`).
+  `cookieDomain: "keep"` passes them on untouched; a function maps the domain.
 - **Errors.** An upstream that cannot be reached is a 502 problem `bad-gateway`; one that
   stays silent past `timeout` a 504 `gateway-timeout`. Neither names the upstream's address.
   An upstream that fails while its answer streams cuts the answer off there.

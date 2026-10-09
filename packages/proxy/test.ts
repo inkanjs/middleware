@@ -99,7 +99,7 @@ test("headers: hop-by-hop ones are dropped both ways, x-forwarded-* added, host 
 
   assert.equal(r.headers["x-upstream"], "yes");
   for (const name of ["connection", "keep-alive", "x-secret-hop"]) assert.equal(r.headers[name], undefined, name);
-  assert.deepEqual(r.cookies, ["a=1; Path=/", "b=2; Path=/"]);
+  assert.deepEqual(r.cookies, ["a=1; Path=/p", "b=2; Path=/p"], "each its own header, the path under the prefix");
 
   const url = await listen(t, app);
   const res = await fetch(url + "/p/x");
@@ -357,4 +357,44 @@ test("x-forwarded-* and forwarded the client sent are replaced unless trustForwa
   const off = inkan(quiet).register(proxy({ to: up, xForwarded: false }));
   const none = (await off.inject({ url: "/x", headers: spoof })).body.headers;
   for (const name of Object.keys(spoof)) assert.equal(none[name], undefined, `${name}, with xForwarded off too`);
+});
+
+test("Location on the upstream's origin is turned into the public path; others are left alone", async (t) => {
+  let up = "";
+  up = await serve(t, (req, res) => {
+    const to = new URL(req.url!, "http://x").searchParams.get("to")!;
+    res.writeHead(302, { location: to.replace("UP", up) }).end();
+  });
+  const app = inkan(quiet)
+    .register(proxy({ prefix: "/legacy", to: up + "/api" }))
+    .register(proxy({ prefix: "/raw", to: up + "/api", rewriteLocation: false }))
+    .register(proxy({ prefix: "/fn", to: up + "/api", rewriteLocation: (l) => l.replace(up, "https://pub.example") }))
+    .get("/one", proxyTo(up + "/status"))
+    .register((s) => void s.register(proxy({ prefix: "/p", to: up })), { prefix: "/v1" });
+  const loc = async (path: string, to: string) => (await app.inject({ url: `${path}?to=${encodeURIComponent(to)}` })).headers.location;
+  assert.equal(await loc("/legacy/x", "UP/api/login?next=%2Fa#top"), "/legacy/login?next=%2Fa#top");
+  assert.equal(await loc("/legacy/x", "UP/api"), "/legacy");
+  assert.equal(await loc("/legacy/x", "/api/teas/1"), "/legacy/teas/1", "path-absolute, on the upstream too");
+  assert.equal(await loc("/legacy/x", "UP/other"), up + "/other", "outside to's path: left");
+  assert.equal(await loc("/legacy/x", "https://sso.example/login"), "https://sso.example/login", "another host: left");
+  assert.equal(await loc("/legacy/x", "../up"), "../up", "relative: left");
+  assert.equal(await loc("/raw/x", "UP/api/login"), up + "/api/login");
+  assert.equal(await loc("/fn/x", "UP/api/login"), "https://pub.example/api/login");
+  assert.equal(await loc("/one", "UP/status/x"), "/status/x", "proxyTo: the upstream's origin dropped");
+  assert.equal(await loc("/v1/p/x", "UP/a"), "/v1/p/a", "under the scope's prefix");
+});
+
+test("set-cookie: Domain is dropped, a Path under to's path goes under the prefix", async (t) => {
+  const up = await serve(t, (_req, res) => {
+    res.setHeader("set-cookie", ["s=1; Domain=legacy.internal; Path=/api/x; HttpOnly", "r=2; path=/api", "o=3; Path=/other; domain=.internal; Secure", "n=4"]);
+    res.end();
+  });
+  const strip = await inkan(quiet).register(proxy({ prefix: "/legacy", to: up + "/api" })).inject({ url: "/legacy/x" });
+  assert.deepEqual(strip.cookies, ["s=1; Path=/legacy/x; HttpOnly", "r=2; Path=/legacy", "o=3; Path=/other; Secure", "n=4"]);
+  const keep = await inkan(quiet).register(proxy({ prefix: "/legacy", to: up + "/api", cookieDomain: "keep" })).inject({ url: "/legacy/x" });
+  assert.deepEqual(keep.cookies, ["s=1; Domain=legacy.internal; Path=/api/x; HttpOnly", "r=2; path=/api", "o=3; Path=/other; domain=.internal; Secure", "n=4"]);
+  const fn = await inkan(quiet).register(proxy({ prefix: "/legacy", to: up + "/api", cookieDomain: (d) => (d === "legacy.internal" ? "pub.example" : "") })).inject({ url: "/legacy/x" });
+  assert.deepEqual(fn.cookies, ["s=1; Domain=pub.example; Path=/legacy/x; HttpOnly", "r=2; Path=/legacy", "o=3; Path=/other; Secure", "n=4"]);
+  const one = await inkan(quiet).get("/one", proxyTo(up + "/api")).inject({ url: "/one" });
+  assert.deepEqual(one.cookies, ["s=1; Path=/api/x; HttpOnly", "r=2; path=/api", "o=3; Path=/other; Secure", "n=4"], "proxyTo: Domain dropped, no prefix to map to");
 });
