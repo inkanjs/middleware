@@ -357,7 +357,7 @@ export function session(options) {
         return fromCookie(ctx.cookies[name]) ?? new Session(Object.create(null), newId(), true);
       });
     },
-    { name: "session", shared: true },
+    { name: "session", shared: true, inkan: ">=0.7.0 <0.8.0" },
   );
 }
 
