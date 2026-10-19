@@ -211,9 +211,35 @@ if (skip) {
       const store = mysqlStore(main, { table: "inkan_other", events: "inkan_other_events" });
       const k = randomBytes(4).toString("hex");
       await store.set(k, [1], 60_000);
-      const [rows] = await main.query<mysql.RowDataPacket[]>("SELECT 1 FROM inkan_other WHERE k = ?", [k]);
-      assert.equal(rows.length, 1);
+      const [rows] = await main.query<mysql.RowDataPacket[]>("SELECT 1 FROM inkan_other WHERE k = ?", [`inkan:${k}`]);
+      assert.equal(rows.length, 1, "under the default prefix inkan:");
       await store.close();
+    });
+
+    test("a prefix ends in ':' (one is added); keys with NUL or a lone surrogate are refused", async () => {
+      const base = `p${randomBytes(4).toString("hex")}`;
+      const a = mysqlStore(main, { prefix: base });
+      const b = mysqlStore(main, { prefix: `${base}1` });
+      try {
+        await a.set("1x", "a");
+        await b.set("x", "b");
+        assert.equal(await a.get("1x"), "a", "prefix p + key 1x is not prefix p1 + key x");
+        const [rows] = await main.query<mysql.RowDataPacket[]>("SELECT k FROM inkan_store WHERE k = ?", [`${base}:1x`]);
+        assert.equal(rows.length, 1);
+        assert.throws(() => mysqlStore(main, { prefix: "a\0" }), TypeError);
+        for (const bad of ["a\0b", "\uD800", "x\uDC00y"]) {
+          await assert.rejects(a.set(bad, 1), TypeError, JSON.stringify(bad));
+          await assert.rejects(a.get(bad), TypeError);
+          await assert.rejects(a.increment(bad), TypeError);
+          await assert.rejects(a.publish(bad, 1), TypeError);
+          await assert.rejects(a.subscribe(bad, () => {}), TypeError);
+        }
+        await assert.rejects(a.get(1 as never), TypeError);
+        assert.equal(await a.get("😀"), undefined, "a whole pair is fine");
+      } finally {
+        await a.close();
+        await b.close();
+      }
     });
 
     test("refuses a step or a TTL that is not a sane number; ten years still expire", async () => {

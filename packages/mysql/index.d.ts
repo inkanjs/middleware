@@ -23,7 +23,10 @@ export type MysqlStoreOptions = {
   table?: string;
   /** The table for publish/subscribe messages, named by the same rule. Default `"inkan_events"`. */
   events?: string;
-  /** Put in front of every key and channel, so several apps can share the tables. Default `""`. */
+  /**
+   * Put in front of every key and channel, so several apps can share the tables. Ends in `:`
+   * (one is added when missing); `""` for none. Default `"inkan:"`.
+   */
   prefix?: string;
   /** Create both tables on first use (`CREATE TABLE IF NOT EXISTS`). Default true. */
   create?: boolean;

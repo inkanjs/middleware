@@ -38,7 +38,7 @@ Give two uses that might pick the same keys a `prefix` of their own:
 | --- | --- | --- |
 | `table` | `"inkan_store"` | the table for the keys |
 | `events` | `"inkan_events"` | the table for publish/subscribe messages |
-| `prefix` | `""` | put in front of every key and channel |
+| `prefix` | `"inkan:"` | put in front of every key and channel; ends in `:` (added when missing) |
 | `create` | `true` | `CREATE TABLE IF NOT EXISTS` both tables on first use |
 | `sweep` | `60000` | ms between two deletes of expired keys and old messages; `0` for none |
 | `poll` | `1000` | ms between two reads of the messages while someone listens |
@@ -80,6 +80,11 @@ CREATE TABLE inkan_events (
 
 ## Limits
 
+- **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets
+  it (`"app"` is `"app:"`), so prefix `"app"` with key `"1x"` and prefix `"app1"` with key
+  `"x"` stay apart. `""` puts nothing in front. Do not give one use a prefix that starts
+  another's (`"app:"` and `"app:sessions:"` can meet). A key or channel holding NUL (`\0`) or a
+  lone UTF-16 surrogate is refused with a `TypeError`, in all four inkan stores alike.
 - **Long keys.** A key (with its prefix) longer than 255 bytes of UTF-8 is kept under
   `\x01sha256:<hex>` of it. Two different keys share a row only if SHA-256 collides. Keys
   starting with `\x01` are hashed too, so no key can pose as a hash.

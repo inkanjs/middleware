@@ -38,6 +38,19 @@ export function storedKey(key) {
   return `\x01sha256:${createHash("sha256").update(key, "utf8").digest("hex")}`;
 }
 
+/** A key or channel as given, or a TypeError: a string without NUL and without a lone surrogate. */
+const checked = (key, what = "key") => {
+  if (typeof key !== "string") throw new TypeError(`mysqlStore: a ${what} is a string, not ${typeof key}`);
+  if (key.includes("\0") || !key.isWellFormed()) throw new TypeError(`mysqlStore: a ${what} cannot hold NUL or a lone surrogate`);
+  return key;
+};
+
+/** The prefix: "" for none, otherwise ending in ":" (added when missing), so a key never runs into another prefix. */
+const prefixOf = (prefix) => {
+  checked(prefix, "prefix");
+  return prefix === "" || prefix.endsWith(":") ? prefix : `${prefix}:`;
+};
+
 /** Ten years in ms: the longest TTL taken, far from DATETIME's end (an overflow there is NULL: no TTL). */
 const MAX_TTL = 315_576_000_000;
 
@@ -66,11 +79,11 @@ export function mysqlStore(pool, options = {}) {
   }
   const table = ident(options.table ?? "inkan_store", "table");
   const events = ident(options.events ?? "inkan_events", "events");
-  const prefix = options.prefix ?? "";
+  const prefix = prefixOf(options.prefix ?? "inkan:");
   const create = options.create ?? true;
   const sweepEvery = options.sweep ?? 60_000;
   const poll = Math.max(10, options.poll ?? 1000);
-  const id = (key) => storedKey(prefix + key);
+  const id = (key, what) => storedKey(prefix + checked(key, what));
   const v = `CAST(v AS CHAR CHARACTER SET utf8mb4) AS v`;
 
   let ready;
@@ -312,11 +325,11 @@ export function mysqlStore(pool, options = {}) {
 
     async publish(channel, message) {
       await setup();
-      await pool.execute(`INSERT INTO ${events} (c, m, at) VALUES (?, ?, ${NOW})`, [storedKey(prefix + channel), json(message)]);
+      await pool.execute(`INSERT INTO ${events} (c, m, at) VALUES (?, ?, ${NOW})`, [id(channel, "channel"), json(message)]);
     },
 
     async subscribe(channel, fn) {
-      const full = storedKey(prefix + channel);
+      const full = id(channel, "channel");
       let fns = channels.get(full);
       if (!fns) channels.set(full, (fns = new Set()));
       const one = (m) => fn(m);
