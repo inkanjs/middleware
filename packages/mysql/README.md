@@ -73,8 +73,10 @@ CREATE TABLE inkan_events (
   wins, one `take` gets the value, the counts go 1 to 50. Deadlocks are retried.
 - **One clock.** Expiry is computed and checked with `UTC_TIMESTAMP(3)`, the database's
   clock, whatever the session time zone, so app servers whose clocks differ agree.
-- **SQL.** Every key, value and TTL is a parameter; the only names in the SQL text are the
-  two checked, backtick-quoted table names.
+- **SQL.** Every key, value and TTL is a parameter of a server-side prepared statement
+  (`pool.execute`), never escaped into the SQL text, so `NO_BACKSLASH_ESCAPES` or a multibyte
+  client charset (gbk, big5, sjis) cannot turn a key into SQL. The only names in the SQL text
+  are the two checked, backtick-quoted table names.
 
 ## Limits
 

@@ -10,7 +10,9 @@
 // over every `sweep` ms. Keys longer than 255 bytes are kept under their SHA-256.
 //
 // SQL: table names are checked against /^[A-Za-z_][A-Za-z0-9_]*$/ and quoted; every value is
-// a parameter.
+// a parameter of a server-side prepared statement (`execute`), never escaped into the SQL
+// text, so neither `NO_BACKSLASH_ESCAPES` nor a multibyte client charset (gbk, big5, sjis)
+// can turn a key into SQL. `query` runs only statements without parameters.
 
 import { createHash } from "node:crypto";
 
@@ -50,8 +52,8 @@ const sqlTime = (ms) => new Date(ms).toISOString().replace("T", " ").replace("Z"
  * @param {import("./index.d.ts").MysqlStoreOptions} [options]
  */
 export function mysqlStore(pool, options = {}) {
-  if (!pool || typeof pool.query !== "function" || typeof pool.getConnection !== "function") {
-    throw new TypeError("mysqlStore: pass a mysql2/promise pool (it needs query and getConnection)");
+  if (!pool || typeof pool.query !== "function" || typeof pool.execute !== "function" || typeof pool.getConnection !== "function") {
+    throw new TypeError("mysqlStore: pass a mysql2/promise pool (it needs query, execute and getConnection)");
   }
   const table = ident(options.table ?? "inkan_store", "table");
   const events = ident(options.events ?? "inkan_events", "events");
@@ -149,9 +151,9 @@ export function mysqlStore(pool, options = {}) {
     const read = async (deliver) => {
       const names = [...channels.keys()];
       if (!names.length) return;
-      const [rows] = await pool.query(`SELECT id, c, m, CAST(at AS CHAR) AS at FROM ${events} WHERE at >= ? AND c IN (?) ORDER BY id`, [
+      const [rows] = await pool.execute(`SELECT id, c, m, CAST(at AS CHAR) AS at FROM ${events} WHERE at >= ? AND c IN (${names.map(() => "?").join(", ")}) ORDER BY id`, [
         sqlTime(cursor - LOOKBACK),
-        names,
+        ...names,
       ]);
       for (const row of rows) {
         const key = String(row.id);
@@ -209,7 +211,7 @@ export function mysqlStore(pool, options = {}) {
 
     async get(key) {
       await setup();
-      const [rows] = await pool.query(`SELECT ${v} FROM ${table} WHERE k = ? AND ${LIVE}`, [id(key)]);
+      const [rows] = await pool.execute(`SELECT ${v} FROM ${table} WHERE k = ? AND ${LIVE}`, [id(key)]);
       return parse(rows[0]?.v);
     },
 
@@ -218,7 +220,7 @@ export function mysqlStore(pool, options = {}) {
       const [e, p] = until(ttl);
       const text = json(value);
       await retrying(() =>
-        pool.query(`INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE v = CAST(? AS JSON), e = ${e}`, [
+        pool.execute(`INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE v = CAST(? AS JSON), e = ${e}`, [
           id(key),
           text,
           ...p,
@@ -230,7 +232,7 @@ export function mysqlStore(pool, options = {}) {
 
     async delete(key) {
       await setup();
-      await pool.query(`DELETE FROM ${table} WHERE k = ?`, [id(key)]);
+      await pool.execute(`DELETE FROM ${table} WHERE k = ?`, [id(key)]);
     },
 
     async add(key, value, ttl) {
@@ -240,8 +242,8 @@ export function mysqlStore(pool, options = {}) {
       // An expired row is absent: remove it, then insert only where nothing is. The INSERT is
       // what decides; of many at once exactly one gets affectedRows 1.
       return retrying(async () => {
-        await pool.query(`DELETE FROM ${table} WHERE k = ? AND e <= ${NOW}`, [k]);
-        const [result] = await pool.query(`INSERT IGNORE INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e})`, [k, json(value), ...p]);
+        await pool.execute(`DELETE FROM ${table} WHERE k = ? AND e <= ${NOW}`, [k]);
+        const [result] = await pool.execute(`INSERT IGNORE INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e})`, [k, json(value), ...p]);
         return result.affectedRows === 1;
       });
     },
@@ -250,9 +252,9 @@ export function mysqlStore(pool, options = {}) {
       await setup();
       const k = id(key);
       return transaction(async (conn) => {
-        const [rows] = await conn.query(`SELECT ${v}, ${LIVE} AS live FROM ${table} WHERE k = ? FOR UPDATE`, [k]);
+        const [rows] = await conn.execute(`SELECT ${v}, ${LIVE} AS live FROM ${table} WHERE k = ? FOR UPDATE`, [k]);
         if (!rows.length) return undefined;
-        await conn.query(`DELETE FROM ${table} WHERE k = ?`, [k]);
+        await conn.execute(`DELETE FROM ${table} WHERE k = ?`, [k]);
         return Number(rows[0].live) ? parse(rows[0].v) : undefined;
       });
     },
@@ -265,20 +267,20 @@ export function mysqlStore(pool, options = {}) {
       const [e, p] = until(ttl);
       return transaction(async (conn) => {
         // `v` first, while `e` is still the old one; then `e`
-        await conn.query(
+        await conn.execute(
           `INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE ` +
             `v = IF(${LIVE}, CAST(IF(JSON_TYPE(v) IN ${NUMBER}, JSON_EXTRACT(v, '$'), 0) + ? AS JSON), CAST(? AS JSON)), ` +
             `e = IF(${LIVE}, e, ${e})`,
           [k, json(step), ...p, step, json(step), ...p],
         );
-        const [rows] = await conn.query(`SELECT ${v} FROM ${table} WHERE k = ?`, [k]);
+        const [rows] = await conn.execute(`SELECT ${v} FROM ${table} WHERE k = ?`, [k]);
         return Number(parse(rows[0].v));
       });
     },
 
     async publish(channel, message) {
       await setup();
-      await pool.query(`INSERT INTO ${events} (c, m, at) VALUES (?, ?, ${NOW})`, [storedKey(prefix + channel), json(message)]);
+      await pool.execute(`INSERT INTO ${events} (c, m, at) VALUES (?, ?, ${NOW})`, [storedKey(prefix + channel), json(message)]);
     },
 
     async subscribe(channel, fn) {

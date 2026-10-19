@@ -9,4 +9,6 @@
 - `add`, `take` and `increment` atomic across processes; deadlocks retried.
 - publish/subscribe by polling a messages table every `poll` ms; a periodic, unref'd sweep
   of expired keys and old messages.
-- Table names checked against `/^[A-Za-z_][A-Za-z0-9_]*$/`; every value a parameter.
+- Table names checked against `/^[A-Za-z_][A-Za-z0-9_]*$/`; every value a parameter of a
+  server-side prepared statement (`execute`), so `NO_BACKSLASH_ESCAPES` and multibyte client
+  charsets (gbk, big5, sjis) cannot turn a key into SQL. The pool needs `execute`.

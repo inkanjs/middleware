@@ -141,6 +141,30 @@ if (skip) {
       await store.close();
     });
 
+    test("under NO_BACKSLASH_ESCAPES a key with a quote is still just a key", async () => {
+      const p = pool();
+      p.on("connection", (conn) => {
+        (conn as unknown as { query(sql: string): void }).query("SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES')");
+      });
+      const [[mode]] = await p.query<mysql.RowDataPacket[]>("SELECT @@SESSION.sql_mode AS m");
+      assert.match(mode!.m, /NO_BACKSLASH_ESCAPES/);
+      const store = mysqlStore(p, { prefix: fresh() });
+      try {
+        const evil = "x' OR 1=1 -- ";
+        await store.set("other", "theirs");
+        assert.equal(await store.get(evil), undefined, "no other row comes back");
+        assert.equal(await store.take(evil), undefined);
+        await store.set(evil, "mine");
+        assert.equal(await store.get(evil), "mine");
+        assert.equal(await store.increment(`${evil}n`, 2), 2);
+        await store.delete(evil);
+        assert.equal(await store.get("other"), "theirs", "the delete hit one key");
+        assert.equal(await store.add(evil, 1), true);
+      } finally {
+        await store.close();
+      }
+    });
+
     test("a table of its own", async () => {
       const store = mysqlStore(main, { table: "inkan_other", events: "inkan_other_events" });
       const k = randomBytes(4).toString("hex");

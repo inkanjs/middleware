@@ -3,6 +3,7 @@ import type { Store } from "@vxnsin/inkan";
 /** A connection from the pool, as `mysql2/promise` gives it. */
 export type MysqlConnectionLike = {
   query(sql: string, values?: unknown[]): Promise<[any, any]>;
+  execute(sql: string, values?: any[]): Promise<[any, any]>;
   beginTransaction(): Promise<void>;
   commit(): Promise<void>;
   rollback(): Promise<void>;
@@ -12,6 +13,8 @@ export type MysqlConnectionLike = {
 /** The parts of a `mysql2/promise` pool this store uses. */
 export type MysqlPoolLike = {
   query(sql: string, values?: unknown[]): Promise<[any, any]>;
+  /** Every statement with values runs as a server-side prepared statement. */
+  execute(sql: string, values?: any[]): Promise<[any, any]>;
   getConnection(): Promise<MysqlConnectionLike>;
 };
 
