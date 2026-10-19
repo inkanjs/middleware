@@ -9,7 +9,7 @@ OpenAPI document and covered by `inkan check`.
 npm install @inkanjs/auth
 ```
 
-Node 22.18 or newer, inkan 0.7 (`register()` refuses other versions). MIT licensed.
+Node 22.18 or newer, inkan 0.8 (`register()` refuses other versions). MIT licensed.
 
 ## Quick start
 
@@ -142,9 +142,10 @@ cookie or token signed with it can still be alive (the session `maxAge`).
     which takes many addresses, and still holds against a distributed guesser.
 
   A lockout skips the user lookup and the hash; a success clears the login's counters.
-  Counters forget after `window` (15 minutes) of quiet. They live in `bruteForce.store`, by
-  default a bounded memoryStore of their own, so a flood of made-up logins never pushes
-  sessions or refresh tokens out of `store`. With several processes, give it a shared one.
+  A counter forgets `window` (15 minutes) after its first failure. Counters live in
+  `bruteForce.store`, a `Store` of their own (by default a bounded memoryStore), so a flood
+  of made-up logins never pushes sessions or refresh tokens out of `store`. With several
+  processes, give it a shared one.
 - With `users.updatePasswordHash(id, hash)`, a login whose hash was made with older scrypt
   parameters stores a fresh one.
 
@@ -283,26 +284,23 @@ typed their address. Without `emailVerified`, make a new account or refuse.
 
 ## Store
 
-Sessions, refresh tokens and TOTP steps live in `store`, by default in memory, per process.
-For several processes, give a shared one:
+Sessions, refresh tokens and TOTP steps live in `store`; the brute-force counters in
+`bruteForce.store`, a second one. Both are inkan `Store`s, by default `memoryStore()` from
+@vxnsin/inkan: in memory, per process. Any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8), or one you
+write against the interface (`storeConformance` from `@vxnsin/inkan/testing` checks it):
 
 ```js
-const store = {
-  get: (key) => redis.get(key).then((v) => (v ? JSON.parse(v) : undefined)),
-  set: (key, value, ttlSeconds) => redis.set(key, JSON.stringify(value), "EX", ttlSeconds),
-  delete: (key) => redis.del(key),
-  // these two must each be ONE atomic step of the store:
-  take: (key) => redis.getdel(key).then((v) => (v ? JSON.parse(v) : undefined)),
-  add: (key, value, ttlSeconds) => redis.set(key, JSON.stringify(value), "EX", ttlSeconds, "NX").then((r) => r === "OK"),
-};
+import { redisStore } from "@inkanjs/redis";
+
+const store = redisStore(redis);
+app.register(auth({ secret, users, store, bruteForce: { store } }));
 ```
 
-`take(key)` reads and removes; `add(key, value, ttl)` writes only when the key is free and
-says whether it did. They are what makes a refresh token, a recovery code or a pending TOTP
-secret usable once across processes. A store without them still works, but those steps are
-then a read and a write, atomic only within one process.
-
-`memoryStore({ max })` keeps at most `max` entries (100 000), dropping the oldest first.
+What the plugin needs of it: `add` and `take` make a refresh token, a recovery code, a TOTP
+code and a pending TOTP secret usable once across processes; `increment` counts failed logins,
+so a burst of parallel guesses is counted in full. TTLs are in milliseconds, as in every
+`Store`. The default `store` keeps at most 100 000 keys, `bruteForce.store` 50 000 of its own,
+so a flood of made-up logins never pushes sessions out.
 
 ## Options
 
@@ -319,7 +317,7 @@ then a read and a write, atomic only within one process.
 | `routes`       | `"/auth"`          | Where the routes go; `false` for none. They reach `client<typeof app>`. |
 | `example`      | none               | `{ login, password }` of a test account (no TOTP): `inkan check` logs in with it, then calls `/me` and `/logout` with the session cookie. |
 | `origins`      | `[]`               | Other origins of yours for the CSRF check. |
-| `store`        | `memoryStore()`    | `get`, `set(key, value, ttl)`, `delete`, and atomic `take`, `add` when shared. |
+| `store`        | `memoryStore()`    | Any inkan `Store`: sessions, refresh tokens, TOTP steps. |
 | `publicUser`   | `{ id, roles }`    | What `/login` and `/me` show. |
 | `userSchema`   | matches the default | The contract of `publicUser`. |
 | `roles`        | `user.roles`       | A user's roles. |
@@ -344,12 +342,11 @@ Tested against the official vectors (RFC 7515, 8037, 6238, 4226, 4648, 7636).
 
 - **A process-local store is per process.** Behind several processes, use a shared store (and
   a shared `bruteForce.store`), or sessions, lockouts and refresh rotation do not hold across
-  them. A shared store needs atomic `take` and `add` for the one-time steps (refresh tokens,
-  recovery codes, the pending TOTP secret).
-- **Refresh rotation is atomic across processes only with a store that has an atomic `add`.**
-  Without it, two uses of one token at the same moment in two processes may both pass. A
-  client that sends the same refresh token twice at once loses its family (by design: it
-  looks like theft).
+  them. Its `add`, `take` and `increment` must be atomic across them, as the `Store`
+  interface asks.
+- **Refresh rotation is atomic across processes**, by the store's `add`: of two uses of one
+  token at the same moment, in any processes, one passes. A client that sends the same
+  refresh token twice at once loses its family (by design: it looks like theft).
 - **Access tokens cannot be revoked** before they expire; keep `expiresIn` short. Sessions
   can: logout deletes them on the server.
 - **No "log out everywhere"**: sessions are not indexed by user. After a password change,

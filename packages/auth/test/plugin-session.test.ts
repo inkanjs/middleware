@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { auth, memoryStore } from "../index.js";
+import { memoryStore } from "@vxnsin/inkan";
+import { auth } from "../index.js";
 import { OTHER_SECRET, SECRET, clock, cookieOf, login, makeApp, makeUsers, setCookieOf } from "./app.ts";
+import { countingStore } from "./store.ts";
 
 const withSid = (sid: string | undefined, headers: Record<string, string> = {}) => ({ cookie: `sid=${sid}`, ...headers });
 
@@ -355,17 +357,17 @@ test("brute force: an IPv6 address counts by its /64", async () => {
 });
 
 test("brute force: counters live in a store of their own; a locked address writes no more of them", async () => {
-  const store = memoryStore({ max: 20 });
-  const counters = memoryStore();
-  const { app } = makeApp({ store, bruteForce: { ipFreeAttempts: 2, store: counters } }, makeUsers(), { trustProxy: true });
+  const store = countingStore(memoryStore({ max: 20 }));
+  const counters = countingStore();
+  const { app } = makeApp({ store: store.store, bruteForce: { ipFreeAttempts: 2, store: counters.store } }, makeUsers(), { trustProxy: true });
   const { sid } = await login(app);
-  const before = store.size;
+  const before = store.keys.size;
   for (let i = 0; i < 3; i++) await tryLogin(app, `u${i}@example.com`, "x", "198.51.100.1");
-  const size = counters.size;
+  const size = counters.keys.size;
   for (let i = 0; i < 50; i++) assert.equal((await tryLogin(app, `flood${i}@example.com`, "x", "198.51.100.1")).status, 429);
-  assert.equal(counters.size, size, "no per-login record once the address is locked");
+  assert.equal(counters.keys.size, size, "no per-login record once the address is locked");
   for (let i = 0; i < 50; i++) await tryLogin(app, `flood${i}@example.com`, "x", `203.0.113.${i}`);
-  assert.equal(store.size, before, "the session store holds no counters");
+  assert.equal(store.keys.size, before, "the session store holds no counters");
   assert.equal((await app.inject({ url: "/account", headers: withSid(sid) })).status, 200, "the session survived the flood");
 });
 

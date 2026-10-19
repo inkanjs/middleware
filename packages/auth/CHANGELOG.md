@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- **Any inkan `Store`** (inkan 0.8) for `store` and `bruteForce.store`: `memoryStore()` from
+  @vxnsin/inkan, or an adapter such as @inkanjs/redis. The plugin's own store interface and
+  `memoryStore` are gone; `memoryStore`, `Store` and `AuthStore` are re-exported from the
+  core, deprecated.
+- **TTLs are in milliseconds**, as `Store` has them (they were seconds). A store of your own
+  that takes seconds keeps keys a thousand times too long: switch it to ms.
+- `add`, `take` and `increment` are required: a store without them is refused when the
+  plugin is made, instead of falling back to a read and a write.
+- Brute-force counters use `increment`, and a counter over its free attempts claims its lock
+  with `add`, so parallel guesses are counted and held back across processes. A counter now
+  forgets `window` after its first failure (a fixed window), not after `window` of quiet.
+- A TOTP code is claimed with `add`: it works once across processes too.
+- Needs inkan `>=0.8.0 <1.0.0`.
+
 ## 0.1.0
 
 - The user is loaded lazily, with inkan 0.7's `decorateRequest(…, { before: "handler", when })`:
