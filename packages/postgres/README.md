@@ -50,10 +50,12 @@ in any worker, and progress and cancels reach the others through LISTEN/NOTIFY.
 | `schema` | the `search_path` | the schema the table is in; it must exist |
 | `prefix` | `""` | put in front of every key and channel, for two apps on one table |
 | `create` | `true` | create the table and its index when they are missing |
-| `sweep` | `60000` | delete expired rows every this many ms; `0` turns it off |
+| `sweep` | `60000` | delete expired rows once at startup and then every this many ms; `0` turns it off |
 | `listener` | from the pool | pg only: the connection LISTEN runs on (see below) |
 
-`store.close()` stops the sweep and the listening. The pool (or client, or `sql`) you passed
+A sweep deletes 10000 rows a statement (`for update skip locked`, so two processes do not
+wait on each other) until a statement comes back short, at most a million rows a sweep; the
+next one goes on. `store.sweep()` runs one now. `store.close()` stops the sweep and the listening. The pool (or client, or `sql`) you passed
 in stays open: end it yourself when the app stops.
 
 ## The table

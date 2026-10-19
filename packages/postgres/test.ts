@@ -137,6 +137,21 @@ if (typeof srv === "string") {
       await store.close();
     });
 
+    it("sweep() deletes in batches until nothing expired is left", async () => {
+      const own = `inkan_sw_${randomUUID().replaceAll("-", "")}`;
+      const store = postgresStore(pool, { table: own, sweep: 0 });
+      try {
+        await store.set("live", 1, 600_000);
+        await pool.query(`insert into "${own}" select 'old:' || i, '1', now() - interval '1 second' from generate_series(1, 25000) i`);
+        await store.sweep();
+        const { rows } = await pool.query(`select count(*)::int as n from "${own}"`);
+        assert.equal(rows[0].n, 1, "25000 expired rows gone in one sweep, the live one kept");
+      } finally {
+        await store.close();
+        await pool.query(`drop table if exists "${own}"`);
+      }
+    });
+
     it("a table in a schema of its own, and create: false leaves a missing table missing", async () => {
       const schema = `inkan_schema_${randomUUID().replaceAll("-", "")}`;
       await pool.query(`create schema "${schema}"`);

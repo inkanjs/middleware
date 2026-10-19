@@ -10,6 +10,7 @@
 - Values as JSON text, so they come back exactly as `JSON.stringify` made them.
 - `publish`/`subscribe` on LISTEN/NOTIFY (messages under 8000 bytes), on one connection
   kept out of the pool; a dropped one is replaced.
-- Expired rows swept every minute; `close()` stops it. Table and schema names checked and
-  quoted, every value a parameter.
+- Expired rows swept once at startup and then every minute, in batches of 10000 rows until
+  none are left (at most a million a sweep); `store.sweep()` runs one now, `close()` stops
+  the timer. Table and schema names checked and quoted, every value a parameter.
 - Passes `storeConformance` from `@vxnsin/inkan/testing` on pg and postgres.js.

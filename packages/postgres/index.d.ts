@@ -36,6 +36,8 @@ export interface PostgresStore extends Store {
   /** NOTIFY: the message as JSON must be under 8000 bytes, or this rejects with a RangeError. */
   publish(channel: string, message: unknown): Promise<void>;
   subscribe(channel: string, fn: (message: unknown) => void): Promise<() => void>;
+  /** Deletes expired rows now, as the periodic sweep does: 10000 a statement until none are left. */
+  sweep(): Promise<void>;
   /** Stops the sweep and the listening; the connection taken from the pool goes back closed. The pool stays open. */
   close(): Promise<void>;
 }

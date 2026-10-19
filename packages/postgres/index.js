@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** pg_notify refuses a payload of 8000 bytes or more. */
 const NOTIFY_MAX = 8000;
+const SWEEP_BATCH = 10_000; // rows one DELETE of the sweep takes, so no lock is held long
+const SWEEP_BATCHES = 100; // DELETEs one sweep runs at most (a million rows); the next goes on
 
 const ident = (name, what) => {
   if (typeof name !== "string" || !IDENT.test(name) || name.length > 63) {
@@ -126,15 +128,34 @@ export function postgresStore(db, options = {}) {
                     else ((case when s.value ~ ${NUMBER} then s.value::numeric else 0 end) + $2::text::numeric)::text end,
             expires_at = case when ${OVER} then excluded.expires_at else s.expires_at end
           returning value`,
-    sweep: `delete from ${table} where expires_at <= now()`,
+    // one batch: rows another process is deleting are skipped, not waited for
+    sweep: `with d as (delete from ${table} where ctid in (
+              select ctid from ${table} where expires_at <= now() limit ${SWEEP_BATCH} for update skip locked
+            ) returning 1) select count(*)::int as n from d`,
   };
 
   let closed = false;
+  /** Deletes in batches until one comes back short, at most SWEEP_BATCHES of them. */
+  const sweep = async () => {
+    for (let i = 0; i < SWEEP_BATCHES && !closed; i++) {
+      const [row] = await run(sql.sweep, []);
+      if (Number(row?.n) < SWEEP_BATCH) return;
+    }
+  };
+  let sweeping;
+  /** The timer's sweep: one at a time; the next tries again, and reads skip expired rows anyway. */
+  const background = () => {
+    sweeping ??= sweep()
+      .catch(() => {})
+      .finally(() => {
+        sweeping = undefined;
+      });
+  };
   let timer;
   if (sweepEvery) {
-    timer = setInterval(() => {
-      run(sql.sweep, []).catch(() => {}); // the next sweep tries again; reads skip expired rows anyway
-    }, sweepEvery);
+    // once now, so a process that never lives a whole `sweep` still deletes; then on a timer
+    background();
+    timer = setInterval(background, sweepEvery);
     timer.unref?.();
   }
 
@@ -274,6 +295,9 @@ export function postgresStore(db, options = {}) {
         }
       };
     },
+
+    /** Deletes what is over now, as the periodic sweep does. */
+    sweep,
 
     /**
      * Stops the sweep and ends listening: the connection the store took from the pool goes
