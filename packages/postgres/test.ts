@@ -121,8 +121,11 @@ if (typeof srv === "string") {
       assert.deepEqual(second, first);
       assert.equal(await store.increment("f", 0.1), 0.1);
       assert.equal(await store.increment("f", 0.2), 0.3);
-      await store.set("s", "not a number");
-      assert.equal(await store.increment("s", 2), 2, "a value that is not a number counts as 0");
+      for (const value of ["not a number", "5", true, null, { n: 1 }]) {
+        await store.set("s", value, 60_000);
+        await assert.rejects(store.increment("s", 2), TypeError, `${JSON.stringify(value)} is not a number`);
+        assert.deepEqual(await store.get("s"), value, "and it stays as it was");
+      }
       await store.close();
     });
 

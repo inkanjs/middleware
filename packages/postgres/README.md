@@ -99,8 +99,9 @@ The driver is told apart by its methods: postgres.js has `unsafe` and `listen`, 
   disagree still agree on what is over. An expired row counts as gone for every method
   (`add` takes its key, `increment` starts over) before the sweep deletes it.
 - A key is never gone before its TTL (microsecond timestamps) and never returned after it.
-- `increment` counts in `numeric`: `0.1 + 0.2` is `0.3`. A value that is not a number counts
-  as 0.
+- `increment` counts in `numeric`: `0.1 + 0.2` is `0.3`. On a live key whose value is not a
+  JSON number (a string, even `"5"`, a boolean, `null`, an object) it rejects with a
+  `TypeError` and leaves the value as it was, as the other stores do.
 - The suite from `@vxnsin/inkan/testing` (`storeConformance`) passes on a pg Pool, a pg
   Client and postgres.js.
 

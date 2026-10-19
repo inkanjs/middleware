@@ -26,6 +26,8 @@ const json = (value) => {
   if (s === undefined) throw new TypeError("postgresStore: undefined is not a value a store keeps");
   return s;
 };
+/** A JSON number, as the text of a value. */
+const IS_NUMBER = /^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][-+]?[0-9]+)?$/;
 /** Ten years in ms: the longest TTL taken. */
 const MAX_TTL = 315_576_000_000;
 /** The TTL as a parameter: milliseconds as text, or null for none. */
@@ -128,7 +130,8 @@ export function postgresStore(db, options = {}) {
     increment: `insert into ${table} as s (key, value, expires_at) values ($1, $2::text::numeric::text, ${EXPIRES})
           on conflict (key) do update set
             value = case when ${OVER} then excluded.value
-                    else ((case when s.value ~ ${NUMBER} then s.value::numeric else 0 end) + $2::text::numeric)::text end,
+                    when s.value ~ ${NUMBER} then (s.value::numeric + $2::text::numeric)::text
+                    else s.value end,
             expires_at = case when ${OVER} then excluded.expires_at else s.expires_at end
           returning value`,
     // one batch: rows another process is deleting are skipped, not waited for
@@ -264,7 +267,10 @@ export function postgresStore(db, options = {}) {
 
     async increment(key, by = 1, ttl) {
       if (typeof by !== "number" || !Number.isFinite(by)) throw new TypeError(`postgresStore: increment takes a finite number, not ${by}`);
-      return Number((await run(sql.increment, [k(key), String(by), ms(ttl)]))[0].value);
+      const { value } = (await run(sql.increment, [k(key), String(by), ms(ttl)]))[0];
+      // a live value that is not a number was left as it was
+      if (!IS_NUMBER.test(value)) throw new TypeError("postgresStore: increment on a key whose value is not a number");
+      return Number(value);
     },
 
     async publish(channel, message) {

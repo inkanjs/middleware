@@ -9,6 +9,8 @@
   returning`); an expired row counts as gone. Expiry by the database's clock.
 - A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
   RangeError otherwise), as in the other stores.
+- `increment` on a live key whose value is not a JSON number rejects with a `TypeError` and
+  leaves the value alone (it counted such a value as 0).
 - Values as JSON text, so they come back exactly as `JSON.stringify` made them.
 - `publish`/`subscribe` on LISTEN/NOTIFY (messages under 8000 bytes), on one connection
   kept out of the pool; a dropped one is replaced. A connection whose LISTEN fails goes back
