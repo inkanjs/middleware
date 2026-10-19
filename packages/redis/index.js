@@ -56,12 +56,12 @@ export function redisStore(client, options = {}) {
   let getdel = true; // until the server says it does not know GETDEL
 
   // publish/subscribe: one subscriber connection, one Redis subscription per channel
-  /** @type {Map<string, Set<(message: unknown) => void>>} */
+  /** @type {Map<string, { fns: Set<(message: unknown) => void>, ready: Promise<void> }>} */
   const channels = new Map();
   let sub; // { conn, owned, ioredis } once made
   let making;
   const deliver = (channel, message) => {
-    const fns = channels.get(channel);
+    const fns = channels.get(channel)?.fns;
     if (!fns || !fns.size) return;
     let m;
     try {
@@ -141,18 +141,22 @@ export function redisStore(client, options = {}) {
 
     async subscribe(channel, fn) {
       const name = k(channel);
-      const { conn, ioredis, listener } = await subscriber();
-      let fns = channels.get(name);
-      if (!fns) {
-        channels.set(name, (fns = new Set()));
-        try {
+      let entry = channels.get(name);
+      if (!entry) {
+        // SUBSCRIBE once per channel; a second subscribe meanwhile waits for the same one
+        const ready = (async () => {
+          const { conn, ioredis, listener } = await subscriber();
           if (ioredis) await conn.subscribe(name);
           else await conn.subscribe(name, listener);
-        } catch (err) {
-          channels.delete(name);
-          throw err;
-        }
+        })();
+        channels.set(name, (entry = { fns: new Set(), ready }));
+        const mine = entry;
+        ready.catch(() => {
+          if (channels.get(name) === mine) channels.delete(name);
+        });
       }
+      await entry.ready;
+      const { fns } = entry;
       // a wrapper of its own: the same function subscribed twice is called twice, removed once
       const one = (m) => fn(m);
       fns.add(one);
@@ -161,7 +165,7 @@ export function redisStore(client, options = {}) {
         if (done) return;
         done = true;
         fns.delete(one);
-        if (!fns.size && channels.get(name) === fns) {
+        if (!fns.size && channels.get(name) === entry) {
           channels.delete(name);
           unsubscribe(name).catch(() => {});
         }
