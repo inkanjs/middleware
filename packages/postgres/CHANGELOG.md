@@ -15,6 +15,10 @@
   missing) so two prefixes cannot run into each other's keys. A key or channel with NUL or a
   lone surrogate is refused with a `TypeError`. Keys over 2048 bytes are kept under their
   SHA-256 (`storedKey`), as in @inkanjs/mysql, instead of failing on the btree's size limit.
+- Errors from the database come without keys and values: a new `Error` with `code`,
+  `severity`, `where` and the schema, table, column and constraint names, its message with
+  every quoted part replaced by `"…"`; pg's `detail` and postgres.js's `query` and
+  `parameters` are not passed on.
 - Values as JSON text, so they come back exactly as `JSON.stringify` made them.
 - `publish`/`subscribe` on LISTEN/NOTIFY (messages under 8000 bytes), on one connection
   kept out of the pool; a dropped one is replaced. A connection whose LISTEN fails goes back

@@ -263,7 +263,7 @@ export function postgresStore(db, options = {}) {
     }
   };
 
-  return {
+  return sanitized({
     shared: true,
 
     async get(key) {
@@ -365,7 +365,40 @@ export function postgresStore(db, options = {}) {
       if (l.owned) l.conn.release(true);
       else for (const name of names) await on(l.conn, `unlisten "${name}"`).catch(() => {});
     },
-  };
+  });
 }
+
+/** What of a driver's error is kept: none of these hold a key or a value. */
+const KEEP = ["code", "severity", "where", "schema", "table", "column", "constraint", "routine", "schema_name", "table_name", "column_name", "constraint_name"];
+
+/**
+ * The store with every method's errors cleaned: pg puts values in `detail` ("Key (value)=(…)")
+ * and in messages ('invalid input syntax for type numeric: "…"'), postgres.js the whole
+ * statement and its parameters in `query` and `parameters`, and an app logs errors. The error
+ * thrown instead keeps `code`, `severity`, `where` and the names of schema, table, column and
+ * constraint, with the message's quoted parts replaced by "…". The store's own errors pass as
+ * they are.
+ */
+function sanitized(store) {
+  for (const name of ["get", "set", "delete", "add", "take", "increment", "publish", "subscribe", "sweep"]) {
+    const method = store[name];
+    store[name] = async (...args) => {
+      try {
+        return await method(...args);
+      } catch (err) {
+        throw clean(err);
+      }
+    };
+  }
+  return store;
+}
+
+const clean = (err) => {
+  if (err instanceof Error && err.message.startsWith("postgresStore:")) return err;
+  const message = String(err?.message ?? err).replace(/"(?:[^"]|"")*"/g, '"…"');
+  const out = new Error(`postgresStore: ${message}`);
+  for (const k of KEEP) if (err?.[k] !== undefined) out[k] = err[k];
+  return out;
+};
 
 export default postgresStore;

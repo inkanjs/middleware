@@ -6,6 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { inspect } from "node:util";
 import pg from "pg";
 import postgres from "postgres";
 import { storeConformance } from "@vxnsin/inkan/testing";
@@ -272,6 +273,39 @@ if (typeof srv === "string") {
         assert.notEqual(storedKey("ü".repeat(1025)), "ü".repeat(1025), "2050 bytes are hashed");
       } finally {
         await store.close();
+      }
+    });
+
+    it("a database error carries no key and no value: no query, no parameters, no detail", async () => {
+      const own = `inkan_err_${randomUUID().replaceAll("-", "")}`;
+      const setup = postgresStore(pool, { table: own, sweep: 0 });
+      await setup.get("x"); // makes the table
+      await setup.close();
+      // a unique index of the user's on the value: a second key with the same value fails, and
+      // PostgreSQL says which value in the detail (Key (value)=(...) already exists)
+      await pool.query(`create unique index on "${own}" (value)`);
+      try {
+        for (const db of [pool, sql]) {
+          const store = postgresStore(db, { table: own, prefix: "secret-key-1:", sweep: 0 });
+          try {
+            await store.set("a", "secret-value-1");
+            const err = await store.set("b", "secret-value-1").then(
+              () => assert.fail("the unique index refuses it"),
+              (e: unknown) => e as Error & Record<string, unknown>,
+            );
+            assert.equal(err.code, "23505");
+            assert.match(err.message, /duplicate key/);
+            for (const k of ["detail", "query", "parameters", "args"]) assert.equal(err[k], undefined, k);
+            const all = inspect(err, { depth: 10, showHidden: true });
+            assert.ok(!all.includes("secret-value-1"), all);
+            assert.ok(!all.includes("secret-key-1"), all);
+            await store.delete("a");
+          } finally {
+            await store.close();
+          }
+        }
+      } finally {
+        await pool.query(`drop table if exists "${own}"`);
       }
     });
 
