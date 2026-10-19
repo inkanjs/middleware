@@ -48,6 +48,13 @@ a `Collection` (the keys go there, messages into `options.events` of its databas
 
 `store.close()` stops listening for messages. The client is yours: close it yourself.
 
+**Give the keys a collection of their own.** The TTL index on `e` deletes every document
+whose `e` is a past date, the store's or not. So with `create` (the default) the store
+refuses a collection that already holds documents but has no `inkan_ttl` index (one it did
+not make before): the first call rejects with an error and nothing is changed. A collection
+the store made itself is taken again after a restart. To use a collection of yours anyway,
+pass `create: false` and make the index yourself, knowing what it deletes.
+
 ## How it keeps things
 
 One document a key: `{ _id: key, v: "<JSON text>", e: Date | null }`, or `{ _id, n, e }` for

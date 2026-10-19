@@ -84,6 +84,23 @@ export function mongoStore(target, options = {}) {
   const setup = () =>
     (ready ??= (async () => {
       if (!create) return;
+      // The TTL index deletes every document whose `e` is a past date, ours or not. Made on a
+      // collection that already holds documents (and not by a store before: no inkan_ttl),
+      // it could delete the user's own; refused, unless the user makes the index (create: false).
+      const indexes = await keys
+        .listIndexes()
+        .toArray()
+        .catch((err) => {
+          if (err?.code === 26) return []; // NamespaceNotFound: no collection yet, so empty
+          throw err;
+        });
+      if (!indexes.some((i) => i.name === "inkan_ttl") && (await keys.findOne({}, { projection: { _id: 1 } }))) {
+        throw new Error(
+          `mongoStore: the collection ${JSON.stringify(keys.collectionName)} already has documents and no inkan_ttl index; ` +
+            "the TTL index on `e` the store makes could delete documents of yours. Use a new or empty collection, " +
+            "or create: false and make the index yourself",
+        );
+      }
       await keys.createIndex({ e: 1 }, { name: "inkan_ttl", expireAfterSeconds: 0 });
     })().catch((err) => {
       ready = undefined;

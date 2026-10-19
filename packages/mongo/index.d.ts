@@ -16,6 +16,7 @@ export type MongoCollectionLike = {
   updateOne(...args: any[]): Promise<any>;
   deleteOne(...args: any[]): Promise<any>;
   createIndex(...args: any[]): Promise<any>;
+  listIndexes(...args: any[]): { toArray(): Promise<any[]> };
 };
 
 export type MongoStoreOptions = {
@@ -25,7 +26,11 @@ export type MongoStoreOptions = {
   events?: string;
   /** Put in front of every key and channel, so several apps can share the collections. Default `""`. */
   prefix?: string;
-  /** Create the TTL indexes on first use. Default true; false when your migrations do it. */
+  /**
+   * Create the TTL indexes on first use. Default true; false when your migrations do it. With
+   * true, a keys collection that already has documents but no `inkan_ttl` index is refused:
+   * the TTL index on `e` would delete documents of yours.
+   */
   create?: boolean;
   /**
    * How subscribers hear of messages: `true` change streams (a replica set or mongos),

@@ -7,6 +7,9 @@
 - One document a key with a TTL index on `e`; reads, `add` and `increment` filter on the
   server's `$$NOW`, so nothing is seen after its TTL while the TTL monitor catches up.
 - `add`, `take` and `increment` are single atomic commands.
+- A keys collection that already holds documents but has no `inkan_ttl` index (one the
+  store did not make) is refused with `create: true`: the TTL index on `e` could delete the
+  user's own documents. `create: false` takes it, the index left to the user.
 - A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
   RangeError otherwise); `increment` takes only a finite number as its step, so no NaN or
   null is ever counted.

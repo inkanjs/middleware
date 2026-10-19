@@ -166,6 +166,33 @@ for (const server of servers) {
       }
     });
 
+    test("refuses a collection with documents of yours: its TTL index would delete them", async () => {
+      const name = `users_${randomBytes(4).toString("hex")}`;
+      const mine = db.collection(name);
+      await mine.insertOne({ _id: "ada" as never, e: new Date(0), email: "ada@example.com" });
+      for (const store of [mongoStore(mine, server.options), mongoStore(db, { ...server.options, collection: name })]) {
+        await assert.rejects(store.set("k", 1), /already has documents/);
+        await store.close();
+      }
+      assert.ok(!(await mine.indexes()).some((i) => i.key.e === 1), "no TTL index was made");
+      assert.equal((await mine.findOne({ _id: "ada" as never }))?.email, "ada@example.com");
+      const own = mongoStore(mine, { ...server.options, create: false });
+      await own.set("k", 1);
+      assert.equal(await own.get("k"), 1, "create: false leaves the index to you");
+      await own.close();
+      await mine.drop();
+
+      // a collection the store made before is its own: a restart takes it
+      const fresh = db.collection(`inkan_${randomBytes(4).toString("hex")}`);
+      const first = mongoStore(fresh, server.options);
+      await first.set("k", 1);
+      await first.close();
+      const again = mongoStore(fresh, server.options);
+      assert.equal(await again.get("k"), 1);
+      await again.close();
+      await fresh.drop();
+    });
+
     test("takes a Collection too", async () => {
       const store = mongoStore(db.collection("inkan_other"), { ...server.options, prefix: randomBytes(4).toString("hex") });
       await store.set("k", 1, 60_000);
