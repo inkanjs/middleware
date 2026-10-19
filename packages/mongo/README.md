@@ -41,7 +41,7 @@ a `Collection` (the keys go there, messages into `options.events` of its databas
 | --- | --- | --- |
 | `collection` | `"inkan_store"` | the collection for the keys, when a `Db` is given |
 | `events` | `"inkan_events"` | the collection for publish/subscribe messages |
-| `prefix` | `""` | put in front of every key and channel |
+| `prefix` | `"inkan:"` | put in front of every key and channel; ends in `:` (added when missing) |
 | `create` | `true` | create the TTL indexes on first use; `false` when your migrations do it |
 | `changeStreams` | `"auto"` | `true`, `false`, or `"auto"`: change streams when the server is a replica set or mongos |
 | `poll` | `1000` | ms between two reads of the messages without change streams |
@@ -77,6 +77,11 @@ over.
 
 ## Limits
 
+- **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets
+  it (`"app"` is `"app:"`), so prefix `"app"` with key `"1x"` and prefix `"app1"` with key
+  `"x"` stay apart. `""` puts nothing in front. Do not give one use a prefix that starts
+  another's (`"app:"` and `"app:sessions:"` can meet). A key or channel holding NUL (`\0`) or a
+  lone UTF-16 surrogate is refused with a `TypeError`, in all four inkan stores alike.
 - **TTL monitor.** MongoDB deletes expired documents about once a minute, not at `e`.
   Nothing returns them in the meantime (every read filters on `e > $$NOW`, and `add` and
   `increment` treat them as absent), but they take space until then.

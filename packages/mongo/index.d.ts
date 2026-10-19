@@ -24,7 +24,10 @@ export type MongoStoreOptions = {
   collection?: string;
   /** The collection for publish/subscribe messages. Default `"inkan_events"`. */
   events?: string;
-  /** Put in front of every key and channel, so several apps can share the collections. Default `""`. */
+  /**
+   * Put in front of every key and channel, so several apps can share the collections. Ends in
+   * `:` (one is added when missing); `""` for none. Default `"inkan:"`.
+   */
   prefix?: string;
   /**
    * Create the TTL indexes on first use. Default true; false when your migrations do it. With

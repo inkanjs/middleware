@@ -28,6 +28,19 @@ const LIVE = {
 };
 const UNEXPIRED = { $expr: { $or: [{ $eq: [{ $ifNull: ["$e", null] }, null] }, { $gt: ["$e", "$$NOW"] }] } };
 
+/** A key or channel as given, or a TypeError: a string without NUL and without a lone surrogate. */
+const checked = (key, what = "key") => {
+  if (typeof key !== "string") throw new TypeError(`mongoStore: a ${what} is a string, not ${typeof key}`);
+  if (key.includes("\0") || !key.isWellFormed()) throw new TypeError(`mongoStore: a ${what} cannot hold NUL or a lone surrogate`);
+  return key;
+};
+
+/** The prefix: "" for none, otherwise ending in ":" (added when missing), so a key never runs into another prefix. */
+const prefixOf = (prefix) => {
+  checked(prefix, "prefix");
+  return prefix === "" || prefix.endsWith(":") ? prefix : `${prefix}:`;
+};
+
 /** Ten years in ms: the longest TTL taken. */
 const MAX_TTL = 315_576_000_000;
 
@@ -74,11 +87,11 @@ export function mongoStore(target, options = {}) {
   const name = options.collection ?? (isDb ? "inkan_store" : target.collectionName);
   const keys = isDb ? target.collection(name) : target;
   const eventsName = options.events ?? "inkan_events";
-  const prefix = options.prefix ?? "";
+  const prefix = prefixOf(options.prefix ?? "inkan:");
   const create = options.create ?? true;
   const poll = Math.max(10, options.poll ?? 1000);
   const mode = options.changeStreams ?? "auto";
-  const id = (key) => prefix + key;
+  const id = (key, what) => prefix + checked(key, what);
 
   let ready;
   const setup = () =>
@@ -346,14 +359,14 @@ export function mongoStore(target, options = {}) {
 
     async publish(channel, message) {
       const col = await eventsCollection();
-      const doc = { c: prefix + channel, m: json(message) };
+      const doc = { c: id(channel, "channel"), m: json(message) };
       if (await useStreams()) await col.insertOne({ ...doc, at: new Date() });
       // the server's time, so that pollers on other machines read it in order
       else await col.updateOne({ _id: messageId() }, [{ $set: { c: { $literal: doc.c }, m: { $literal: doc.m }, at: "$$NOW" } }], { upsert: true });
     },
 
     async subscribe(channel, fn) {
-      const full = prefix + channel;
+      const full = id(channel, "channel");
       let fns = channels.get(full);
       if (!fns) channels.set(full, (fns = new Set()));
       const one = (m) => fn(m);

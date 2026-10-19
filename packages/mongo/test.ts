@@ -193,6 +193,35 @@ for (const server of servers) {
       await fresh.drop();
     });
 
+    test("a prefix ends in ':' (one is added); keys with NUL or a lone surrogate are refused", async () => {
+      const base = `p${randomBytes(4).toString("hex")}`;
+      const a = mongoStore(db, { ...server.options, prefix: base });
+      const b = mongoStore(db, { ...server.options, prefix: `${base}1` });
+      const plain = mongoStore(db, server.options);
+      try {
+        await a.set("1x", "a");
+        await b.set("x", "b");
+        assert.equal(await a.get("1x"), "a", "prefix p + key 1x is not prefix p1 + key x");
+        assert.ok(await db.collection("inkan_store").findOne({ _id: `${base}:1x` as never }));
+        const k = randomBytes(4).toString("hex");
+        await plain.set(k, 1);
+        assert.ok(await db.collection("inkan_store").findOne({ _id: `inkan:${k}` as never }), "the default prefix is inkan:");
+        assert.throws(() => mongoStore(db, { prefix: "a\0" }), TypeError);
+        for (const bad of ["a\0b", "\uD800", "x\uDC00y"]) {
+          await assert.rejects(a.set(bad, 1), TypeError, JSON.stringify(bad));
+          await assert.rejects(a.get(bad), TypeError);
+          await assert.rejects(a.increment(bad), TypeError);
+          await assert.rejects(a.publish(bad, 1), TypeError);
+          await assert.rejects(a.subscribe(bad, () => {}), TypeError);
+        }
+        await assert.rejects(a.get(1 as never), TypeError);
+      } finally {
+        await a.close();
+        await b.close();
+        await plain.close();
+      }
+    });
+
     test("takes a Collection too", async () => {
       const store = mongoStore(db.collection("inkan_other"), { ...server.options, prefix: randomBytes(4).toString("hex") });
       await store.set("k", 1, 60_000);

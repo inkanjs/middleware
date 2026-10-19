@@ -4,6 +4,9 @@
 
 - `mongoStore(dbOrCollection, { collection, events, prefix, create, changeStreams, poll })`:
   an inkan `Store` on your own `mongodb` client, passing `storeConformance`.
+- Keys and channels under `prefix`, default `"inkan:"`, which ends in `:` (added when
+  missing) so two prefixes cannot run into each other's keys. A key or channel with NUL or a
+  lone surrogate is refused with a `TypeError`.
 - One document a key with a TTL index on `e`; reads, `add` and `increment` filter on the
   server's `$$NOW`, so nothing is seen after its TTL while the TTL monitor catches up.
 - `add`, `take` and `increment` are single atomic commands.
