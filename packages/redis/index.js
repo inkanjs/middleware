@@ -115,7 +115,7 @@ export function redisStore(client, options = {}) {
     return sub.ioredis ? sub.conn.unsubscribe(channel) : sub.conn.unsubscribe(channel, sub.listener);
   };
 
-  return {
+  return sanitized({
     shared: true,
 
     async get(key) {
@@ -219,7 +219,28 @@ export function redisStore(client, options = {}) {
       else if (typeof s.conn.close === "function") await s.conn.close().catch(() => s.conn.destroy?.());
       else await s.conn.quit().catch(() => s.conn.disconnect?.());
     },
-  };
+  });
+}
+
+/**
+ * The store with every method's errors cleaned: ioredis puts the command with its key and
+ * value on its errors (`command: { name, args }`), and an app logs errors. The error thrown
+ * instead keeps the server's message (Redis names no key or value in it) and nothing else.
+ * The store's own errors pass as they are.
+ */
+function sanitized(store) {
+  for (const name of ["get", "set", "delete", "add", "take", "increment", "publish", "subscribe"]) {
+    const method = store[name];
+    store[name] = async (...args) => {
+      try {
+        return await method(...args);
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("redisStore:")) throw err;
+        throw new Error(`redisStore: ${String(err?.message ?? err)}`);
+      }
+    };
+  }
+  return store;
 }
 
 export default redisStore;

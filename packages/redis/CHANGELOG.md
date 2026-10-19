@@ -12,6 +12,8 @@
   the Redis error), as in the other stores.
 - A prefix ends in `:` (one is added when missing), so two prefixes cannot run into each
   other's keys. A key or channel with NUL or a lone surrogate is refused with a `TypeError`.
+- Errors from the server come without keys and values: a new `Error` with the server's
+  message; ioredis's `command` (the command with its key and value) is not passed on.
 - `publish`/`subscribe` on Redis Pub/Sub, with a duplicated connection made at the first
   `subscribe` and closed by `store.close()`.
 - Passes `storeConformance` from `@vxnsin/inkan/testing` on both clients.

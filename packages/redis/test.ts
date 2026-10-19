@@ -2,6 +2,7 @@ import { after, describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { inspect } from "node:util";
 import { createClient } from "redis";
 import { Redis } from "ioredis";
 import { storeConformance } from "@vxnsin/inkan/testing";
@@ -180,6 +181,25 @@ if (typeof srv === "string") {
         }
         await store.set("s", 5.5);
         assert.equal(await store.increment("s", 2), 7.5, "a number counts on");
+      }
+    });
+
+    it("a server error carries no key: no command, no arguments", async () => {
+      for (const client of [io, node]) {
+        const prefix = `secret-key-1:${randomUUID()}:`;
+        const store = redisStore(client, { prefix });
+        await io.lpush(`${prefix}list`, "x"); // a key of another type: WRONGTYPE
+        for (const call of [() => store.get("list"), () => store.take("list"), () => store.increment("list")]) {
+          const err = await call().then(
+            () => assert.fail("WRONGTYPE"),
+            (e: unknown) => e as Error & Record<string, unknown>,
+          );
+          assert.match(err.message, /WRONGTYPE/);
+          assert.equal(err.command, undefined);
+          const all = inspect(err, { depth: 10, showHidden: true });
+          assert.ok(!all.includes("secret-key-1"), all);
+        }
+        await io.del(`${prefix}list`);
       }
     });
 
