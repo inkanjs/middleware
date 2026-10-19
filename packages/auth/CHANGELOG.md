@@ -24,6 +24,9 @@
   toward `ipFreeAttempts`; the login's own counters are still cleared by a success.
 - A TOTP code is claimed with `add`: it works once across processes too.
 - Needs inkan `>=0.8.0 <1.0.0`.
+- On the inkan 0.8.0 names, so the plugin prints no deprecation warning: `onOperation`,
+  `decorateRequest(…, { resolve: "preHandler" })`, and `problem(status, type, { detail, headers })`
+  for the answers with headers.
 
 ## 0.1.0
 

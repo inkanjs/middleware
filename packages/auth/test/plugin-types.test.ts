@@ -71,7 +71,7 @@ test("the plugin's routes reach the typed client: POST /auth/login, under a pref
   const none = () => api.post("/auth/nope", {});
   const me = () => api.get("/auth/me");
 
-  const prefixed = inkan({ log: false }).register(auth({ secret: SECRET, users: { byId: async (id: string) => db.get(id) }, routes: "/session" }), { prefix: "/api" });
+  const prefixed = inkan({ log: false }).register(auth({ secret: SECRET, users: { byId: async (id: string) => db.get(id) }, routes: "/session" }), {}, { prefix: "/api" });
   const p = client<typeof prefixed>("http://localhost:1");
   const login2 = () => p.post("/api/session/login", { body: { login: "ada", password: "x" } });
   // @ts-expect-error routes: false defines none

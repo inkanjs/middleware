@@ -79,7 +79,7 @@ test("inkan check passes with failureRedirect too, and under a prefix", async ()
     password: FAST,
     oauth: { baseUrl: "https://app.example", github: { clientId: "c" }, onLogin: () => undefined, failureRedirect: "/login" },
   });
-  const app = inkan({ log: false }).register(plugin, { prefix: "/api" });
+  const app = inkan({ log: false }).register(plugin, {}, { prefix: "/api" });
   const report = await app.check();
   assert.ok(report.ok, JSON.stringify(report.results.filter((r) => !r.ok)));
   assert.ok(report.results.some((r) => r.path === "/api/auth/oauth/:provider/callback"));
@@ -91,7 +91,7 @@ test("inkan check with an example account: logs in, then /me and /logout with th
   for (const prefix of ["", "/api"]) {
     const users = makeUsers();
     const plugin = auth<User>({ secret: SECRET, users: users.source, password: FAST, example: { login: "bob@example.com", password: "correct horse" } });
-    const app = inkan({ log: false }).register(plugin, { prefix });
+    const app = inkan({ log: false }).register(plugin, {}, { prefix });
     const report = await app.check();
     assert.ok(report.ok, JSON.stringify(report.results.filter((r) => !r.ok)));
     const names = report.results.map((r) => `${r.method} ${r.path} > ${r.example}`);

@@ -7,7 +7,7 @@
 // for a scheme this plugin cannot verify is refused, never waved through.
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
-import { HttpProblem, memoryStore, plugin, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, memoryStore, plugin, problem, reply, t } from "@vxnsin/inkan";
 import { AuthError } from "./errors.js";
 import { isObject, secureUrl } from "./http.js";
 import { jwksSource, signJwt, verifyJwt } from "./jwt.js";
@@ -280,7 +280,7 @@ function slots(max, waitMs) {
   let active = 0;
   /** @type {{ go: () => void, timer: NodeJS.Timeout }[]} */
   const queue = [];
-  const busy = () => new HttpProblem(503, "busy", "Too many logins at once; try again in a moment", {}, { "retry-after": "1" });
+  const busy = () => problem(503, "busy", { detail: "Too many logins at once; try again in a moment", headers: { "retry-after": "1" } });
   return async function run(work) {
     if (active < max) active++;
     else {
@@ -578,7 +578,7 @@ function install(app, c) {
       }
       if (failure && (schemes.length > 0 || needsUser) && !lenient) {
         const code = publicCode(failure.err);
-        throw new HttpProblem(401, code, DETAIL[code], {}, challenges(schemes.length ? schemes : [failure.s], c, code));
+        throw problem(401, code, { detail: DETAIL[code], headers: challenges(schemes.length ? schemes : [failure.s], c, code) });
       }
       // missing credentials on a route with security: the core answers 401 right after the onRequest hooks
       if (needsUser && !schemes.length) throw new HttpProblem(401, "unauthorized", "Log in first");
@@ -593,7 +593,7 @@ function install(app, c) {
 
   // Awaited before the handler, so hooks after the input check and the handler see the user
   // itself; a route outside needsAuth never touches the store.
-  app.decorateRequest("user", authenticate, { before: "handler", when: needsAuth });
+  app.decorateRequest("user", authenticate, { resolve: "preHandler", when: needsAuth });
   app.decorateRequest("auth", (ctx) => {
     const st = stateOf(ctx);
     return Object.freeze({
@@ -638,7 +638,7 @@ function install(app, c) {
   // ---- OpenAPI ----
 
   const sessionSchemeName = session ? `${session.cookie}-cookie`.replace(/[^\w.-]/g, "_") : undefined;
-  app.describe((op, route, components) => {
+  app.onOperation((op, route, components) => {
     const schemes = components.securitySchemes ?? {};
     if (c.jwt && schemes.bearer) {
       schemes.bearer.bearerFormat ??= "JWT";
@@ -715,7 +715,7 @@ function install(app, c) {
       }
       if (until) {
         const wait = Math.max(1, Math.ceil((until - now) / 1000));
-        throw new HttpProblem(429, "too-many-attempts", `Too many failed logins; try again in ${wait}s`, {}, { "retry-after": String(wait) });
+        throw problem(429, "too-many-attempts", { detail: `Too many failed logins; try again in ${wait}s`, headers: { "retry-after": String(wait) } });
       }
     },
     /** A success: the login's counters go, the address's stay (its attempt counted as one). */
