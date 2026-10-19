@@ -9,7 +9,7 @@
 // the same key for another request (another method, path, query or body) a 422.
 
 import { createHash } from "node:crypto";
-import { HttpProblem, memoryStore, plugin, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, memoryStore, plugin, problem, reply, stateKey, t } from "@vxnsin/inkan";
 
 /** @deprecated the core's `memoryStore` from @vxnsin/inkan, re-exported for 0.1 code. */
 export { memoryStore } from "@vxnsin/inkan";
@@ -90,8 +90,8 @@ export function idempotency(options = {}) {
 
   return plugin(
     (app) => {
-      const asked = new WeakMap(); // ctx → { key, auth }, read before a header schema strips them
-      const claimed = new WeakMap(); // ctx → { id, fingerprint } for the requests this process runs
+      const asked = stateKey("idempotency.asked"); // { key, auth }, read before a header schema strips them
+      const claimed = stateKey("idempotency.claimed"); // { id, fingerprint } for the requests this process runs
       const running = new Map(); // id → fingerprint: two requests at once in this process never both run
 
       app.onRequest((ctx) => {
@@ -115,7 +115,7 @@ export function idempotency(options = {}) {
         const fingerprint = sha256(`${caller}\n${ctx.method}\n${ctx.path}\n${stable(ctx.query)}\n${stable(ctx.body)}`);
 
         const reused = () => new HttpProblem(422, "idempotency-key-reused", `This ${header} was used for another request`);
-        const inFlight = () => new HttpProblem(409, "idempotency-in-flight", `A request with this ${header} is still running; try again shortly`, {}, { "retry-after": "1" });
+        const inFlight = () => problem(409, "idempotency-in-flight", { detail: `A request with this ${header} is still running; try again shortly`, headers: { "retry-after": "1" } });
 
         const mine = running.get(id);
         if (mine !== undefined) throw mine === fingerprint ? inFlight() : reused();
@@ -146,7 +146,7 @@ export function idempotency(options = {}) {
       app.onSend(async (ctx, out) => {
         const c = claimed.get(ctx);
         if (!c) return;
-        claimed.delete(ctx);
+        claimed.set(ctx, undefined);
         try {
           if (out.stream || !keep(out.status)) return void (await store.delete(c.id)); // not kept: the client may try again
           const headers = {};
@@ -163,7 +163,7 @@ export function idempotency(options = {}) {
       });
 
       // the header and the two answers it can bring, on every route it acts on
-      app.describe((op, route, components) => {
+      app.onOperation((op, route, components) => {
         if (!methods.has(route.method)) return;
         const params = (op.parameters ??= []);
         if (!params.some((p) => p.in === "header" && String(p.name).toLowerCase() === header)) params.push({
@@ -175,10 +175,10 @@ export function idempotency(options = {}) {
         });
         const schemas = (components.schemas ??= {});
         schemas.Problem ??= t.problem().toJSONSchema().$defs.Problem;
-        const problem = (description) => ({ description, content: { "application/problem+json": { schema: { $ref: "#/components/schemas/Problem" } } } });
-        op.responses["409"] ??= problem("A request with this Idempotency-Key is still running (`idempotency-in-flight`)");
-        op.responses["422"] ??= problem("This Idempotency-Key was used for another request (`idempotency-key-reused`)");
-        if (required) op.responses["400"] ??= problem("The Idempotency-Key header is missing (`idempotency-key-missing`)");
+        const answer = (description) => ({ description, content: { "application/problem+json": { schema: { $ref: "#/components/schemas/Problem" } } } });
+        op.responses["409"] ??= answer("A request with this Idempotency-Key is still running (`idempotency-in-flight`)");
+        op.responses["422"] ??= answer("This Idempotency-Key was used for another request (`idempotency-key-reused`)");
+        if (required) op.responses["400"] ??= answer("The Idempotency-Key header is missing (`idempotency-key-missing`)");
       });
     },
     { name: "idempotency", shared: true, inkan: ">=0.8.0 <1.0.0" },
