@@ -43,7 +43,7 @@
     "mongodb-memory-server-core": "^11.3.0"
   },
   "scripts": {
-    "test": "node --test test.ts"
+    "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
   },
   "publishConfig": {
     "access": "public"

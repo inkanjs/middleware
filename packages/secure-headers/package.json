@@ -41,7 +41,7 @@
     "@vxnsin/inkan": "file:../../../inkan-release-0.8"
   },
   "scripts": {
-    "test": "node --test test.ts"
+    "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
   },
   "publishConfig": {
     "access": "public"

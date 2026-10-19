@@ -44,7 +44,7 @@
     "redis-memory-server": "^0.17.1"
   },
   "scripts": {
-    "test": "node --test test.ts"
+    "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
   },
   "publishConfig": {
     "access": "public"
