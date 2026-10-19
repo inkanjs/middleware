@@ -214,7 +214,7 @@ export function breaker(options = {}) {
         call.circuit.settle(call.token, Boolean(s.isFailure(out.status, p && p.status >= 500 ? p : undefined)));
       });
     },
-    { name: "circuit-breaker", shared: true, inkan: ">=0.7.0 <0.8.0" },
+    { name: "circuit-breaker", shared: true, inkan: ">=0.8.0 <1.0.0" },
   );
 }
 
