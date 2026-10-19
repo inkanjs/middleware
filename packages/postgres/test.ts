@@ -219,6 +219,21 @@ if (typeof srv === "string") {
       }
     });
 
+    it("refuses a TTL that is not a finite number of ms up to ten years", async () => {
+      const store = postgresStore(pool, { table, prefix: fresh(), sweep: 0 });
+      try {
+        for (const ttl of [NaN, Infinity, "10"]) await assert.rejects(store.set("x", 1, ttl as never), TypeError, String(ttl));
+        for (const ttl of [0, -5, 315_576_000_001]) {
+          await assert.rejects(store.set("x", 1, ttl), RangeError, String(ttl));
+          await assert.rejects(store.add("x", 1, ttl), RangeError, String(ttl));
+          await assert.rejects(store.increment("x", 1, ttl), RangeError, String(ttl));
+        }
+        assert.equal(await store.get("x"), undefined, "nothing was written");
+      } finally {
+        await store.close();
+      }
+    });
+
     it("refuses a message NOTIFY cannot carry", async () => {
       const store = postgresStore(pool, { table, prefix: fresh() });
       await assert.rejects(store.publish("c", "x".repeat(8000)), RangeError);

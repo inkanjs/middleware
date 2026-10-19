@@ -26,11 +26,14 @@ const json = (value) => {
   if (s === undefined) throw new TypeError("postgresStore: undefined is not a value a store keeps");
   return s;
 };
+/** Ten years in ms: the longest TTL taken. */
+const MAX_TTL = 315_576_000_000;
 /** The TTL as a parameter: milliseconds as text, or null for none. */
 const ms = (ttl) => {
   if (ttl === undefined) return null;
-  if (typeof ttl !== "number" || Number.isNaN(ttl)) throw new TypeError(`postgresStore: a TTL is a number of milliseconds, not ${ttl}`);
-  return String(Math.max(0, ttl));
+  if (typeof ttl !== "number" || !Number.isFinite(ttl)) throw new TypeError(`postgresStore: a TTL is a finite number of milliseconds, not ${String(ttl)}`);
+  if (ttl <= 0 || ttl > MAX_TTL) throw new RangeError(`postgresStore: a TTL is more than 0 and at most ten years (${MAX_TTL} ms), not ${ttl}`);
+  return String(ttl);
 };
 const parse = (row) => (row === undefined ? undefined : JSON.parse(row.value));
 

@@ -7,6 +7,8 @@
   dependencies of its own.
 - `add`, `take` and `increment` are one statement each (`insert … on conflict`, `delete …
   returning`); an expired row counts as gone. Expiry by the database's clock.
+- A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
+  RangeError otherwise), as in the other stores.
 - Values as JSON text, so they come back exactly as `JSON.stringify` made them.
 - `publish`/`subscribe` on LISTEN/NOTIFY (messages under 8000 bytes), on one connection
   kept out of the pool; a dropped one is replaced. A connection whose LISTEN fails goes back
