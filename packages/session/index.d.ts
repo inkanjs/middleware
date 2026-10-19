@@ -1,16 +1,10 @@
-import type { Plugin } from "@vxnsin/inkan";
+import type { memoryStore as coreMemoryStore, Plugin, Store } from "@vxnsin/inkan";
 
 /** What a store keeps per session: the data, when the session began (ms), and flash messages not read yet. Plain JSON. */
 export type SessionRecord = { d: Record<string, unknown>; c: number; f?: Record<string, string[]> };
 
-/** Where the data lives when the cookie only holds an id. Every method may return a promise. */
-export interface SessionStore {
-  /** The record kept under `id`, or undefined when there is none (any more). */
-  get(id: string): unknown | Promise<unknown>;
-  /** Keeps `record` under `id` for `ttl` **seconds** (as @inkanjs/auth's store does). */
-  set(id: string, record: SessionRecord, ttl: number): void | Promise<void>;
-  delete(id: string): void | Promise<void>;
-}
+/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+export type SessionStore = Store;
 
 export type SessionCookie = {
   /** Default `"sid"`. */
@@ -37,8 +31,12 @@ export type SessionOptions = {
   cookie?: SessionCookie;
   /** AES-256-GCM instead of a signature: the client cannot read the data either. Default false. Ignored with a store. */
   encrypt?: boolean;
-  /** Keep the data here and only a random id in the cookie. See `memoryStore()`. */
-  store?: SessionStore;
+  /**
+   * Keep the data in this inkan `Store` (`memoryStore()` from @vxnsin/inkan, Redis, a
+   * database, …) and only a random id in the cookie. A `SessionRecord` per session, for
+   * `maxAge` (in ms, as every Store takes it).
+   */
+  store?: Store;
   /** Write the cookie (and the store's entry) on every answer, so the session lasts `maxAge` after the last request. Default false. */
   rolling?: boolean;
   /**
@@ -90,5 +88,5 @@ export declare function session<Data extends Record<string, unknown> = Record<st
 ): Plugin<{}, {}, { session: Session<Data> }>;
 export default session;
 
-/** A store in this process's memory, at most `max` sessions (default 10000), the least recently written dropped first. */
-export declare function memoryStore(options?: { max?: number }): SessionStore & { readonly size: number };
+/** @deprecated Use `memoryStore` from "@vxnsin/inkan": this is the same function, re-exported. */
+export declare const memoryStore: typeof coreMemoryStore;

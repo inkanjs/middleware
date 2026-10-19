@@ -44,21 +44,23 @@ in it. A cookie session lasts until it expires even after `destroy()` if someone
 copy; when you need logout to end a session for certain, use a store.
 
 ```ts
-import { memoryStore, session } from "@inkanjs/session";
+import { memoryStore } from "@vxnsin/inkan";
+import { session } from "@inkanjs/session";
 
 app.register(session({ secret, store: memoryStore({ max: 50_000 }) }));
 ```
 
-`memoryStore` lives in the process: right for development and one process. For more,
-write the three methods against Redis or your database:
+The store is an inkan `Store`. `memoryStore` from @vxnsin/inkan lives in the process: right
+for development and one process. For more, any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8):
 
 ```ts
-const store: SessionStore = {
-  get: async (id) => JSON.parse((await redis.get(`sess:${id}`)) ?? "null") ?? undefined,
-  set: async (id, record, ttl) => void (await redis.set(`sess:${id}`, JSON.stringify(record), "EX", ttl)), // ttl in seconds
-  delete: async (id) => void (await redis.del(`sess:${id}`)),
-};
+import { redisStore } from "@inkanjs/redis";
+
+app.register(session({ secret, store: redisStore(redis) }));
 ```
+
+The plugin uses its `get`, `set` and `delete`, keeps a `SessionRecord` (`{ d, c, f? }`, plain
+JSON) per session, and gives it a TTL of `cookie.maxAge` in milliseconds.
 
 ## Options
 
@@ -66,7 +68,7 @@ const store: SessionStore = {
 | --- | --- | --- |
 | `secret` | required | at least 32 bytes (a string as UTF-8, or bytes); a list rotates them (below) |
 | `encrypt` | `false` | AES-256-GCM instead of a signature; ignored with a store |
-| `store` | none | `{ get(id), set(id, record, ttl), delete(id) }`, each may be async; `ttl` in **seconds**, as in @inkanjs/auth; `record` is plain JSON |
+| `store` | none | any inkan `Store`; TTLs in ms, as every `Store` takes them; records are plain JSON |
 | `rolling` | `false` | write the cookie on every answer, so a session lasts `maxAge` after the last request |
 | `maxLifetime` | none | seconds a session lasts at most from its start (or `regenerate()`), however active; with `rolling` you want one |
 | `cookie.name` | `"sid"` | |
