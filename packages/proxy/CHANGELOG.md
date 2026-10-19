@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+
 ## 0.1.0
 
 - `proxy({ prefix, to })`: every method under a prefix to an upstream; `proxyTo(to)`: one
