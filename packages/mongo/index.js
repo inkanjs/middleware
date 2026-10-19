@@ -267,7 +267,7 @@ export function mongoStore(target, options = {}) {
     await l?.stop();
   };
 
-  return {
+  return sanitized({
     shared: true,
 
     async get(key) {
@@ -393,8 +393,40 @@ export function mongoStore(target, options = {}) {
       channels.clear();
       await stopListening();
     },
-  };
+  });
 }
+
+/**
+ * The store with every method's errors cleaned: the driver's server errors name the key or
+ * value they are about ("dup key: { _id: … }", `keyValue`, `errorResponse`), and an app logs
+ * errors. The error thrown instead keeps `code` and `codeName`, its message without the
+ * "dup key" part and with every quoted part replaced by "…". The store's own errors pass as
+ * they are.
+ */
+function sanitized(store) {
+  for (const name of ["get", "set", "delete", "add", "take", "increment", "publish", "subscribe"]) {
+    const method = store[name];
+    store[name] = async (...args) => {
+      try {
+        return await method(...args);
+      } catch (err) {
+        throw clean(err);
+      }
+    };
+  }
+  return store;
+}
+
+const clean = (err) => {
+  if (err instanceof Error && err.message.startsWith("mongoStore:")) return err;
+  const message = String(err?.message ?? err)
+    .replace(/dup key:[\s\S]*$/, "dup key: { … }")
+    .replace(/"(?:[^"\\]|\\.)*"/g, '"…"')
+    .replace(/'(?:[^'\\]|\\.)*'/g, "'…'");
+  const out = new Error(`mongoStore: ${message}`);
+  for (const k of ["code", "codeName"]) if (err?.[k] !== undefined) out[k] = err[k];
+  return out;
+};
 
 /** An _id for a message that sorts after the ones this process sent before. */
 const self = randomBytes(6).toString("hex");

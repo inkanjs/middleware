@@ -5,6 +5,7 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { inspect } from "node:util";
 import { MongoClient } from "mongodb";
 import { storeConformance } from "@vxnsin/inkan/testing";
 import { mongoStore, type MongoStore, type MongoStoreOptions } from "./index.js";
@@ -219,6 +220,30 @@ for (const server of servers) {
         await a.close();
         await b.close();
         await plain.close();
+      }
+    });
+
+    test("a database error carries no key and no value: no dup key, no keyValue", async () => {
+      const name = `inkan_err_${randomBytes(4).toString("hex")}`;
+      // a unique index of the user's on the value: a second key with the same value fails, and
+      // MongoDB names the value ("dup key: { v: ... }", keyValue)
+      await db.collection(name).createIndex({ v: 1 }, { unique: true });
+      const store = mongoStore(db, { ...server.options, collection: name, prefix: "secret-key-1:" });
+      try {
+        await store.set("a", "secret-value-1");
+        const err = await store.set("b", "secret-value-1").then(
+          () => assert.fail("the unique index refuses it"),
+          (e: unknown) => e as Error & Record<string, unknown>,
+        );
+        assert.equal(err.code, 11000);
+        assert.match(err.message, /duplicate key/);
+        for (const k of ["keyValue", "keyPattern", "errorResponse", "errmsg"]) assert.equal(err[k], undefined, k);
+        const all = inspect(err, { depth: 10, showHidden: true });
+        assert.ok(!all.includes("secret-value-1"), all);
+        assert.ok(!all.includes("secret-key-1"), all);
+      } finally {
+        await store.close();
+        await db.collection(name).drop();
       }
     });
 
