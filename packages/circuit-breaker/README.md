@@ -21,7 +21,7 @@ The common case: a service you call that sometimes falls over. Wrap the call onc
 use the wrapped function as before.
 
 ```ts
-import { HttpProblem, inkan, problem } from "@vxnsin/inkan";
+import { inkan, problem } from "@vxnsin/inkan";
 import { circuit, CircuitOpenError } from "@inkanjs/circuit-breaker";
 
 const rates = circuit((currency: string) => fetch(`https://rates.example/${currency}`, { signal: AbortSignal.timeout(2000) }), {
@@ -36,7 +36,7 @@ const app = inkan().get("/prices/:currency", async (ctx) => {
     if (!res.ok) throw problem(502, "rates-failed");
     return await res.json();
   } catch (err) {
-    if (err instanceof CircuitOpenError) throw new HttpProblem(503, "rates-unavailable", undefined, {}, { "retry-after": String(err.retryAfter) });
+    if (err instanceof CircuitOpenError) throw problem(503, "rates-unavailable", { headers: { "retry-after": String(err.retryAfter) } });
     throw err;
   }
 });

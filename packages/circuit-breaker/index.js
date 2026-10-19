@@ -8,7 +8,7 @@
 // open       calls fail at once (CircuitOpenError, or a 503 problem) for `cooldown` ms
 // half-open  one call goes through as a probe: success closes it, failure opens it again
 
-import { HttpProblem, plugin } from "@vxnsin/inkan";
+import { plugin, problem } from "@vxnsin/inkan";
 
 /** 5xx answers and thrown errors. */
 const defaultIsFailure = (status, err) => err !== undefined || (typeof status === "number" && status >= 500);
@@ -200,11 +200,15 @@ export function breaker(options = {}) {
           calls.set(ctx, { circuit: c, token: c.enter() });
         } catch (err) {
           if (!(err instanceof CircuitOpenError)) throw err;
-          throw new HttpProblem(503, "circuit-open", "This service failed too often and is resting; try again later", { retryAfter: err.retryAfter }, { "retry-after": String(err.retryAfter) });
+          throw problem(503, "circuit-open", {
+            detail: "This service failed too often and is resting; try again later",
+            extra: { retryAfter: err.retryAfter },
+            headers: { "retry-after": String(err.retryAfter) },
+          });
         }
       });
 
-      app.onProblem((ctx, problem) => void (calls.has(ctx) && problems.set(ctx, problem)));
+      app.onProblem((ctx, failed) => void (calls.has(ctx) && problems.set(ctx, failed)));
 
       app.onSend((ctx, out) => {
         const call = calls.get(ctx);

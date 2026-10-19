@@ -3,6 +3,8 @@
 ## 0.1.1 (unreleased)
 
 - Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+- The 503 of an open circuit is made with `problem(status, type, { detail, extra, headers })`,
+  and the README shows that form too.
 
 ## 0.1.0
 
