@@ -29,7 +29,7 @@ export type SecureHeadersOptions = {
   csp?: CspOptions | boolean;
   /** strict-transport-security, sent over HTTPS only unless `force`. */
   hsts?: HstsOptions | false;
-  /** Whether a request came over HTTPS. Default: the socket is a TLS socket. */
+  /** Whether a request came over HTTPS. Default `ctx.secure`: TLS, or `x-forwarded-proto` from a proxy the app's `trustProxy` trusts. */
   https?: (ctx: Context<any, any, any, any, any>) => boolean;
   /** x-content-type-options. Default `nosniff`. */
   noSniff?: string | false;

@@ -109,6 +109,12 @@ test("hsts: over HTTPS, or always with force, never twice", async () => {
   assert.equal((await behindProxy.inject({ url: "/x", headers: { "x-forwarded-proto": "https" } })).headers["strict-transport-security"], "max-age=600");
   assert.equal((await behindProxy.inject({ url: "/x" })).headers["strict-transport-security"], undefined);
 
+  const trusted = inkan({ ...quiet, trustProxy: true }).register(secureHeaders()).get("/x", () => ({}));
+  assert.equal((await trusted.inject({ url: "/x", headers: { "x-forwarded-proto": "https" } })).headers["strict-transport-security"], "max-age=31536000; includeSubDomains", "ctx.secure by default");
+  assert.equal((await trusted.inject({ url: "/x" })).headers["strict-transport-security"], undefined);
+  const untrusted = inkan(quiet).register(secureHeaders()).get("/x", () => ({}));
+  assert.equal((await untrusted.inject({ url: "/x", headers: { "x-forwarded-proto": "https" } })).headers["strict-transport-security"], undefined, "no trustProxy: the header is nobody's word");
+
   const off = inkan(quiet).register(secureHeaders({ hsts: false, https: () => true })).get("/x", () => ({}));
   assert.equal((await off.inject({ url: "/x" })).headers["strict-transport-security"], undefined);
 });
