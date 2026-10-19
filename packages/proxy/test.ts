@@ -286,9 +286,19 @@ test("in a scope registered with a prefix, and the app's hooks still run", async
   const up = await serve(t, echo);
   const app = inkan(quiet)
     .onRequest((ctx) => (ctx.rawHeaders["x-block"] ? ctx.reply(403, { blocked: true }) : undefined))
-    .register((scope) => void scope.register(proxy({ prefix: "/p", to: up })), { prefix: "/v1" });
+    .register((scope) => void scope.register(proxy({ prefix: "/p", to: up })), {}, { prefix: "/v1" });
   assert.equal((await app.inject({ url: "/v1/p/x" })).body.url, "/x");
   assert.equal((await app.inject({ url: "/v1/p/x", headers: { "x-block": "1" } })).status, 403);
+});
+
+test("mounted by register(plugin, options, { prefix }): its own prefix goes under the mount", async (t) => {
+  const up = await serve(t, echo);
+  const app = inkan(quiet)
+    .register(proxy({ prefix: "/p", to: up }), {}, { prefix: "/v2" })
+    .register(proxy({ to: up + "/api" }), {}, { prefix: "/whole" });
+  assert.equal((await app.inject({ url: "/v2/p/x?q=1" })).body.url, "/x?q=1");
+  assert.equal((await app.inject({ url: "/whole/y" })).body.url, "/api/y");
+  assert.equal((await app.inject({ url: "/p/x" })).status, 404);
 });
 
 test("encoded slashes, backslashes and NUL, also double-encoded, are a 400 before the upstream is asked", async (t) => {
@@ -370,7 +380,7 @@ test("Location on the upstream's origin is turned into the public path; others a
     .register(proxy({ prefix: "/raw", to: up + "/api", rewriteLocation: false }))
     .register(proxy({ prefix: "/fn", to: up + "/api", rewriteLocation: (l) => l.replace(up, "https://pub.example") }))
     .get("/one", proxyTo(up + "/status"))
-    .register((s) => void s.register(proxy({ prefix: "/p", to: up })), { prefix: "/v1" });
+    .register((s) => void s.register(proxy({ prefix: "/p", to: up })), {}, { prefix: "/v1" });
   const loc = async (path: string, to: string) => (await app.inject({ url: `${path}?to=${encodeURIComponent(to)}` })).headers.location;
   assert.equal(await loc("/legacy/x", "UP/api/login?next=%2Fa#top"), "/legacy/login?next=%2Fa#top");
   assert.equal(await loc("/legacy/x", "UP/api"), "/legacy");
