@@ -63,13 +63,15 @@ GET /teas/:id   SERVER
 | `ctx.span` | this request's span: `setAttribute`, `addEvent`, `recordException`. Non-recording (calls do nothing) for an ignored request |
 | `ctx.traceContext` | the OpenTelemetry context with the span in it, for children |
 
-The span is not made the active one for the handler's async work: a hook cannot wrap it.
-Start children under it with the context:
+While the route middleware and the handler run, the span is the active one (an `around`
+hook runs them in `context.with`), so `trace.getActiveSpan()`, `startActiveSpan` and
+instrumented libraries (a database driver, `fetch`) put their spans under it, across
+`await`s too, given the context manager every Node SDK sets up:
 
 ```ts
 const tracer = trace.getTracer("tea-shop");
 app.get("/teas/:id", (ctx) =>
-  tracer.startActiveSpan("load tea", {}, ctx.traceContext, async (span) => {
+  tracer.startActiveSpan("load tea", async (span) => {
     try {
       return await db.tea(ctx.params.id);
     } finally {
@@ -78,6 +80,9 @@ app.get("/teas/:id", (ctx) =>
   }),
 );
 ```
+
+Hooks run outside it (`onRequest`, `preHandler`, `onSend`): there, start children under
+`ctx.traceContext`, as in `tracer.startActiveSpan(name, {}, ctx.traceContext, fn)`.
 
 A thrown error reaches the span as a problem only (`internal`): inkan keeps the error to
 `onError`. Record it there with `spanOf`:

@@ -8,7 +8,7 @@
 // is up to the SDK the app sets up. Without one every call here is a no-op.
 
 import { context, propagation, ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, INVALID_SPAN_CONTEXT } from "@opentelemetry/api";
-import { plugin } from "@vxnsin/inkan";
+import { plugin, stateKey } from "@vxnsin/inkan";
 
 const NAME = "@inkanjs/otel";
 const VERSION = "0.1.0";
@@ -22,11 +22,11 @@ const getter = {
   get: (carrier, key) => carrier[key.toLowerCase()],
 };
 
-const traced = new WeakMap(); // ctx → { span, context }
+const traced = stateKey("otel"); // { span, context, problem } of a traced request
 
 /** The span of a request, or undefined when it has none (not traced, or before the hook ran). */
 export function spanOf(ctx) {
-  return ctx ? traced.get(ctx)?.span : undefined;
+  return ctx?.state ? traced.get(ctx)?.span : undefined;
 }
 
 /** Host and port of a Host header; undefined for a broken one. */
@@ -76,7 +76,7 @@ export function otel(options = {}) {
           attributes["server.address"] = host.address;
           if (host.port) attributes["server.port"] = host.port;
         }
-        const version = ctx.req?.httpVersion;
+        const version = ctx.httpVersion;
         if (version) attributes["network.protocol.version"] = version;
         if (extra) Object.assign(attributes, extra(ctx));
         const name = nameOf ? nameOf(ctx) : route ? `${method} ${route}` : method;
@@ -86,6 +86,13 @@ export function otel(options = {}) {
         // set, not made on first read: a hook that read them earlier would keep a stale value
         ctx.span = span;
         ctx.traceContext = active;
+      });
+
+      // the span is the active one while the route middleware and the handler run, so
+      // trace.getActiveSpan() and instrumented libraries find it (given a context manager)
+      app.around((ctx, next) => {
+        const t = traced.get(ctx);
+        return t ? context.with(t.context, next) : next();
       });
 
       app.onProblem((ctx, problem) => {
@@ -99,7 +106,7 @@ export function otel(options = {}) {
       app.onResponse((ctx, done) => {
         const t = traced.get(ctx);
         if (!t) return;
-        traced.delete(ctx);
+        traced.set(ctx, undefined);
         const { span, problem } = t;
         span.setAttribute("http.response.status_code", done.status);
         if (done.route && !ctx.route) span.setAttribute("http.route", done.route);
