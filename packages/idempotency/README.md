@@ -28,7 +28,7 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
 
 | option | default | |
 | --- | --- | --- |
-| `store` | `memoryStore()` | where answers are kept (below) |
+| `store` | `memoryStore()` | any inkan `Store`: where answers are kept (below) |
 | `methods` | `["POST", "PATCH"]` | |
 | `header` | `"Idempotency-Key"` | |
 | `required` | `false` | a request without the key is a 400 `idempotency-key-missing` |
@@ -55,8 +55,8 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
   input breaks the contract, or that an onRequest hook (auth, rate limit) turned away, is
   not kept, and its key stays free.
 - **At the same time.** Two requests with the same key in the same process never both run:
-  the second one is a 409. Across processes that holds when the store has `add` (keep only
-  when the key is free, as Redis `SET … NX`); `memoryStore` has it.
+  the second one is a 409. Across processes too: the key is claimed with the store's atomic
+  `add`.
 - **Whose key.** Keys are the client's, so they are kept per caller, and the caller is part of
   the fingerprint too. Without `scope` the caller is the first of: `ctx.user.id` (what
   @inkanjs/auth sets, so a user is the same caller by cookie or by token), the Authorization
@@ -69,16 +69,17 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
   (required with `required`) and the 409 and 422 answers, as problem documents.
 - Shared plugin: register it on the app for every route, or inside a plugin for its routes.
 
-## A store of your own
+## Store
+
+Answers are kept in an inkan `Store`, by default `memoryStore()` from @vxnsin/inkan: one
+process, at most `max` keys (default 10000), the least recently used dropped first. For
+several processes any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8):
 
 ```ts
-const store: IdempotencyStore = {
-  get: async (key) => JSON.parse((await redis.get(`idem:${key}`)) ?? "null") ?? undefined,
-  set: async (key, record, ttl) => void (await redis.set(`idem:${key}`, JSON.stringify(record), "PX", ttl)),
-  add: async (key, record, ttl) => (await redis.set(`idem:${key}`, JSON.stringify(record), "PX", ttl, "NX")) === "OK",
-  delete: async (key) => void (await redis.del(`idem:${key}`)),
-};
+import { redisStore } from "@inkanjs/redis";
+
+app.register(idempotency({ store: redisStore(redis) }));
 ```
 
-Records are plain JSON (a binary body as base64). `memoryStore({ max })` keeps at most
-`max` keys (default 10000), dropping the oldest, in one process.
+The plugin uses `get`, `set`, `delete` and the atomic `add`, with TTLs in milliseconds
+(`ttl`, `lockTtl`). Records are plain JSON (a binary body as base64).

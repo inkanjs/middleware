@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, plugin, problem, reply, t } from "@vxnsin/inkan";
-import { idempotency, memoryStore, type IdempotencyOptions } from "./index.js";
+import { inkan, memoryStore, plugin, problem, reply, t, type Store } from "@vxnsin/inkan";
+import { idempotency, memoryStore as deprecatedMemoryStore, type IdempotencyOptions } from "./index.js";
 
 const quiet = { log: false as const };
 const Order = t.object({ id: t.number(), tea: t.string() });
@@ -249,12 +249,65 @@ test("methods: PUT too when asked; other methods are left alone", async () => {
   assert.equal(n, 3);
 });
 
-test("memoryStore keeps at most max keys", async () => {
+test("on the core's memoryStore(): kept at most max keys, for ttl ms", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
   const store = memoryStore({ max: 2 });
-  const s = shop({ store });
+  const s = shop({ store, ttl: 5000 });
   for (const k of ["a", "b", "c"]) await order(s.app, k);
-  assert.equal(store.size, 2);
   assert.equal((await order(s.app, "a")).headers["idempotent-replayed"], undefined, "the oldest went first");
+  assert.equal((await order(s.app, "c")).headers["idempotent-replayed"], "true");
+  t.mock.timers.tick(5001);
+  assert.equal((await order(s.app, "c")).headers["idempotent-replayed"], undefined, "gone after ttl ms");
+});
+
+const METHODS = ["get", "set", "delete", "add", "take", "increment"];
+
+/** Any Store, wrapped: only the six methods are there, and every call and property read is noted. */
+function spyStore(inner: Store = memoryStore()) {
+  const calls: string[] = [];
+  const ttls: (number | undefined)[] = [];
+  const touched = new Set<string | symbol>();
+  const plain: Store = {
+    get: (k) => (calls.push("get"), inner.get(k)),
+    set: (k, v, ttl) => (calls.push("set"), ttls.push(ttl), inner.set(k, v, ttl)),
+    delete: (k) => (calls.push("delete"), inner.delete(k)),
+    add: (k, v, ttl) => (calls.push("add"), ttls.push(ttl), inner.add(k, v, ttl)),
+    take: (k) => (calls.push("take"), inner.take(k)),
+    increment: (k, by, ttl) => (calls.push("increment"), inner.increment(k, by, ttl)),
+  };
+  const store = new Proxy(plain, {
+    get(target, prop, receiver) {
+      touched.add(prop);
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return { store, calls, ttls, touched };
+}
+
+test("any Store will do: only get, add, set and delete of it are used, TTLs in ms", async () => {
+  const { store, calls, ttls, touched } = spyStore();
+  const s = shop({ store, ttl: 120_000, lockTtl: 7_000 });
+  assert.equal((await order(s.app, "k1")).status, 201);
+  assert.equal((await order(s.app, "k1")).headers["idempotent-replayed"], "true");
+  await s.app.inject({ method: "POST", url: "/fail", headers: { "idempotency-key": "k2" } });
+  assert.deepEqual([...new Set(calls)].sort(), ["add", "delete", "get", "set"]);
+  assert.deepEqual([...touched].filter((p) => !METHODS.includes(String(p))), [], "nothing but the Store interface");
+  assert.deepEqual(ttls, [7_000, 120_000, 7_000]);
+});
+
+test("a key the store does not have is undefined; null or a stranger's record is not an answer", async () => {
+  const store = memoryStore();
+  const s = shop({ store });
+  assert.equal((await order(s.app, "fresh")).status, 201);
+  const other = shop({ store: { ...store, get: async () => null } as Store });
+  assert.equal((await order(other.app, "fresh")).status, 422, "null is a value of somebody else's, never a free key");
+});
+
+test("a store without add, or not a store at all, is refused when the plugin is made; memoryStore is the core's", () => {
+  const { get, set, delete: del } = memoryStore();
+  assert.throws(() => idempotency({ store: { get, set, delete: del } as unknown as Store }), /store must be an inkan Store .*missing: add/);
+  assert.throws(() => idempotency({ store: 42 as unknown as Store }), /store must be an inkan Store/);
+  assert.equal(deprecatedMemoryStore, memoryStore);
 });
 
 test("OpenAPI: the header and the 409 and 422 answers, only on the routes it acts on", async () => {
