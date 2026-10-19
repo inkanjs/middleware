@@ -14,8 +14,11 @@ itself, every package keeps no dependencies, but `@inkanjs/otel`, which needs
 | [`@inkanjs/proxy`](packages/proxy) | A streaming reverse proxy: a prefix or one route handed on to an upstream. |
 | [`@inkanjs/circuit-breaker`](packages/circuit-breaker) | Circuit breakers for outgoing calls and for routes: fail fast while something is down. |
 | [`@inkanjs/otel`](packages/otel) | OpenTelemetry tracing: a server span per request, with the HTTP semantic conventions. |
+| [`@inkanjs/mongo`](packages/mongo) | A `Store` on MongoDB, on your own client: jobs, rate limits and sessions shared by every process. |
+| [`@inkanjs/mysql`](packages/mysql) | A `Store` on MySQL 8, on your own `mysql2` pool: jobs, rate limits and sessions shared by every process. |
 
-Every package is tested in CI on Node 22, 24 and 26:
+Every package is tested in CI on Node 22, 24 and 26; the stores against MongoDB 7 and
+MySQL 8.4 (locally they download a server once, or use `MONGO_URL` and `MYSQL_URL`):
 
 ```sh
 npm install
