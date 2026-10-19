@@ -169,8 +169,10 @@ export interface AuthOptions<U extends AuthUser> {
    * Failed logins before an exponential lockout: `freeAttempts` (5) per login from one address,
    * `loginFreeAttempts` (100) per login from everywhere, `ipFreeAttempts` (50) per address (an
    * IPv6 address by its /64). Counted with `increment` in `store`, a `Store` of its own, by default a
-   * memoryStore; `window` (900) and `maxDelay` (900) are seconds, a counter forgets `window` after its
-   * first failure. false turns it off.
+   * memoryStore; `window` (900) and `maxDelay` (900) are seconds. A count starts over `window` after
+   * its first attempt; the lockout escalates (1s, 2s, … maxDelay) and is forgotten only after
+   * `window` of quiet past the last lock. `window` must be at least `maxDelay`. A success clears the
+   * login's counters, never the address's. false turns it off.
    */
   bruteForce?:
     | false

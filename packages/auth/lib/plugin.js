@@ -255,6 +255,9 @@ function configure(o) {
     for (const k of ["freeAttempts", "loginFreeAttempts", "ipFreeAttempts", "maxDelay", "window"]) {
       if (!Number.isInteger(b[k]) || b[k] < 1) throw new TypeError(`auth: bruteForce.${k} must be a positive integer`);
     }
+    // the escalation is forgotten `window` after a lock ends: shorter than a lock, it would be
+    // forgotten while the lock still holds
+    if (b.window < b.maxDelay) throw new TypeError("auth: bruteForce.window must be at least bruteForce.maxDelay");
     // counters live apart from sessions and refresh tokens: a flood of made-up logins fills
     // (and evicts within) this store only
     b.store = checkStore(b.store ?? memoryStore({ clock, max: 50_000 }), "bruteForce.store");
@@ -668,11 +671,19 @@ function install(app, c) {
   // stranger who knows a login cannot lock its owner out from one machine. Each attempt is
   // counted (an atomic increment) before the password is checked, and a counter over its
   // free attempts claims its lock with an atomic add: of a burst of parallel guesses only the
-  // one that claims the lock goes on, in every process. A counter forgets `window` seconds
-  // after its first failure; a success gives the address its attempt back and clears the
-  // login's counters.
+  // one that claims the lock goes on, in every process.
+  //
+  // Escalation: next to each counter `key:s` holds its level, the number of locks claimed.
+  // The count itself is a fixed window (it starts over `window` after its first attempt), but
+  // once a counter has a level, every attempt after a lock claims the next one, twice as long
+  // (1s, 2s, 4s, … up to maxDelay), whatever the count. The level is kept `window` past the
+  // end of the last lock: a guesser who keeps going, however slowly, stays at one attempt per
+  // maxDelay; only `window` of quiet after a lock forgets it. A success clears the login's
+  // counters and levels, never the address's: else a guesser would log into an account of
+  // their own between guesses.
   const bf = c.bruteForce;
   const lockOf = (key) => key + ":lock";
+  const levelOf = (key) => key + ":s";
   const guard = bf && {
     keysFor(login, ip) {
       const l = hashToken(login.trim().toLowerCase());
@@ -689,34 +700,34 @@ function install(app, c) {
           until = locked;
           break;
         }
+        const s = await bf.store.get(levelOf(key));
+        const level = typeof s === "number" && s > 0 ? Math.min(s, 64) : 0;
         const n = await bf.store.increment(key, 1, bf.window * 1000);
-        const over = n - free;
-        if (over <= 0) continue;
-        const delay = Math.min(2 ** (over - 1), bf.maxDelay) * 1000;
+        if (level === 0 && n <= free) continue;
+        const delay = Math.min(2 ** level, bf.maxDelay) * 1000;
         // the attempt that claims the lock goes on; one that finds it claimed is turned away
         if (!(await bf.store.add(lockOf(key), now + delay, delay))) {
           const held = await bf.store.get(lockOf(key));
           until = typeof held === "number" && held > now ? held : now + delay;
           break;
         }
+        await bf.store.set(levelOf(key), level + 1, delay + bf.window * 1000);
       }
       if (until) {
         const wait = Math.max(1, Math.ceil((until - now) / 1000));
         throw new HttpProblem(429, "too-many-attempts", `Too many failed logins; try again in ${wait}s`, {}, { "retry-after": String(wait) });
       }
     },
-    /** A success: the address gets its attempt back, the login's counters go. */
+    /** A success: the login's counters go, the address's stay (its attempt counted as one). */
     async succeeded(keys) {
-      const [ipKey, free] = keys.ip;
-      const n = await bf.store.get(ipKey);
-      if (typeof n === "number" && n > 0 && (await bf.store.increment(ipKey, -1)) <= free) await bf.store.delete(lockOf(ipKey));
       await guard.clear(keys.loginIp[0]);
       await guard.clear(keys.login[0]);
     },
-    /** Forgets a counter and its lock. */
+    /** Forgets a counter, its lock and its level. */
     async clear(key) {
       await bf.store.delete(key);
       await bf.store.delete(lockOf(key));
+      await bf.store.delete(levelOf(key));
     },
   };
 

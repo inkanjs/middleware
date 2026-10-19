@@ -8,6 +8,8 @@ export function countingStore(inner: Store = memoryStore()) {
   const calls = Object.fromEntries(METHODS.map((m) => [m, 0])) as Record<(typeof METHODS)[number], number>;
   /** Every key written (set, add, increment). */
   const keys = new Set<string>();
+  /** Every key written with set. */
+  const setKeys = new Set<string>();
   /** Every TTL given with a set or an add, and with an increment that gives one. */
   const ttls: (number | undefined)[] = [];
   /** Every property read on the store. */
@@ -18,7 +20,7 @@ export function countingStore(inner: Store = memoryStore()) {
   };
   const plain: Store = {
     get: (key) => (calls.get++, inner.get(key)),
-    set: (key, value, ttl) => (calls.set++, wrote(key, ttl), inner.set(key, value, ttl)),
+    set: (key, value, ttl) => (calls.set++, setKeys.add(key), wrote(key, ttl), inner.set(key, value, ttl)),
     delete: (key) => (calls.delete++, inner.delete(key)),
     add: (key, value, ttl) => (calls.add++, wrote(key, ttl), inner.add(key, value, ttl)),
     take: (key) => (calls.take++, inner.take(key)),
@@ -30,5 +32,5 @@ export function countingStore(inner: Store = memoryStore()) {
       return Reflect.get(target, prop, receiver);
     },
   });
-  return { store, inner, calls, keys, ttls, touched };
+  return { store, inner, calls, keys, setKeys, ttls, touched };
 }

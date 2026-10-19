@@ -11,8 +11,17 @@
 - `add`, `take` and `increment` are required: a store without them is refused when the
   plugin is made, instead of falling back to a read and a write.
 - Brute-force counters use `increment`, and a counter over its free attempts claims its lock
-  with `add`, so parallel guesses are counted and held back across processes. A counter now
-  forgets `window` after its first failure (a fixed window), not after `window` of quiet.
+  with `add`, so parallel guesses are counted and held back across processes. The count is
+  a fixed window (it starts over `window` after its first attempt), but the **escalation is
+  kept**: next to each counter its level (locks claimed) is stored, every attempt after a
+  lock claims the next one, twice as long up to `maxDelay`, and the level is forgotten only
+  after `window` of quiet past the last lock. A slow guesser stays at one guess per
+  `maxDelay`, as with the old sliding window, instead of getting the free attempts back every
+  `window`.
+- `bruteForce.window` must be at least `bruteForce.maxDelay` (a TypeError otherwise).
+- A successful login no longer gives the address its attempt back: a guesser could log into
+  an account of their own between guesses and never be locked. Successful logins count
+  toward `ipFreeAttempts`; the login's own counters are still cleared by a success.
 - A TOTP code is claimed with `add`: it works once across processes too.
 - Needs inkan `>=0.8.0 <1.0.0`.
 

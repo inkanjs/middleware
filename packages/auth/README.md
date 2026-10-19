@@ -134,7 +134,9 @@ cookie or token signed with it can still be alive (the session `maxAge`).
   `retry-after`):
   - the client address, `ipFreeAttempts` (50). An IPv6 address counts by its /64, since one
     client usually holds a whole /64. It is checked first: a locked address writes no more
-    counters. A successful login gives the address its attempt back.
+    counters. Every password attempt from it counts, successful ones too: a success never
+    resets the address, else a guesser would log into an account of their own between
+    guesses. Behind a big NAT, raise `ipFreeAttempts`.
   - the login from that address, `freeAttempts` (5): the fast lock against one guesser.
   - the login from everywhere, `loginFreeAttempts` (100). Why two for the login: with only a
     per-login lock, anyone who knows your email could lock you out from one machine. Here
@@ -142,7 +144,15 @@ cookie or token signed with it can still be alive (the session `maxAge`).
     which takes many addresses, and still holds against a distributed guesser.
 
   A lockout skips the user lookup and the hash; a success clears the login's counters.
-  A counter forgets `window` (15 minutes) after its first failure. Counters live in
+
+  **Escalation.** The count is a fixed window: it starts over `window` (15 minutes) after
+  its first attempt. The lockout does not: each counter keeps its level (how many locks it
+  has claimed), and once it has one, every attempt after a lock claims the next, twice as
+  long, up to `maxDelay`, whatever the count. The level is forgotten only after `window` of
+  quiet following the end of the last lock. So a guesser who keeps going, however slowly,
+  stays at one guess per `maxDelay` (15 minutes) for as long as they keep going; a fixed
+  window alone would give them the free attempts back every `window`. `window` must be at
+  least `maxDelay`. Counters live in
   `bruteForce.store`, a `Store` of their own (by default a bounded memoryStore), so a flood
   of made-up logins never pushes sessions or refresh tokens out of `store`. With several
   processes, give it a shared one.

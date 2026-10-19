@@ -83,7 +83,8 @@ test("store: the plugin takes any Store, and uses nothing but the interface", as
     for (const m of ["get", "set", "delete", "add", "take"] as const) assert.ok(main.calls[m] > 0, `store.${m} is used`);
     assert.equal(main.calls.increment, 0, "no counters in the main store");
     assert.ok(counters.calls.increment > 0, "brute-force counters use increment");
-    assert.equal(counters.calls.set, 0, "and are never read and written back");
+    assert.ok(counters.calls.set > 0, "a lock's level is set");
+    assert.ok([...counters.setKeys].every((k) => k.endsWith(":s")), "and only levels: counts are never read and written back");
     assert.ok([...counters.keys].every((k) => k.startsWith("b:")));
     assert.ok(![...main.keys].some((k) => k.startsWith("b:")), "no counters in the main store");
   } finally {
