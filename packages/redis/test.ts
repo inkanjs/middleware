@@ -150,6 +150,19 @@ if (typeof srv === "string") {
       await sub.close();
     });
 
+    it("increment on a value that is not a number throws a TypeError and leaves it", async () => {
+      for (const client of [io, node]) {
+        const store = redisStore(client, { prefix: fresh() });
+        for (const value of ["not a number", "5", true, null, { n: 1 }, [1]]) {
+          await store.set("s", value, 60_000);
+          await assert.rejects(store.increment("s", 2), TypeError, `${JSON.stringify(value)} is not a number`);
+          assert.deepEqual(await store.get("s"), value, "and it stays as it was");
+        }
+        await store.set("s", 5.5);
+        assert.equal(await store.increment("s", 2), 7.5, "a number counts on");
+      }
+    });
+
     it("refuses undefined, and a TTL that is not a finite number of ms up to ten years", async () => {
       const store = redisStore(io, { prefix: fresh() });
       await assert.rejects(store.set("x", undefined), TypeError);

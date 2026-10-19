@@ -85,7 +85,9 @@ other object is refused.
 - **Publish/subscribe is Redis Pub/Sub:** at most once, nothing kept. A message published
   while a subscriber is reconnecting is lost. inkan's jobs live with that (the job record
   in the store is the truth, messages only make others hear sooner).
-- `increment` on a key that holds something other than a number fails with the Redis error.
+- `increment` on a key whose value is not a JSON number (a string, even `"5"`, a boolean,
+  `null`, an object) rejects with a `TypeError` and leaves the value as it was, as the other
+  stores do.
 - Redis Cluster works with ioredis' `Cluster` and node-redis' `createCluster` as far as the
   commands go (every command touches one key), but is not tested here.
 - Memory: keys without a TTL stay until deleted. Set `maxmemory-policy` with that in mind;

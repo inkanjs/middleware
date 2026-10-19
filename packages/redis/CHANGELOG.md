@@ -8,6 +8,8 @@
   Lua script that gives only a new key its TTL. Every key and channel under `prefix`.
 - A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
   RangeError otherwise), as in the other stores.
+- `increment` on a key whose value is not a JSON number rejects with a `TypeError` (it was
+  the Redis error), as in the other stores.
 - `publish`/`subscribe` on Redis Pub/Sub, with a duplicated connection made at the first
   `subscribe` and closed by `store.close()`.
 - Passes `storeConformance` from `@vxnsin/inkan/testing` on both clients.

@@ -10,7 +10,13 @@
 /** INCRBY (INCRBYFLOAT for a step or a number that is not whole), and the TTL only on a new key. */
 const INCREMENT = `local existed = redis.call('EXISTS', KEYS[1])
 local n = redis.pcall('INCRBY', KEYS[1], ARGV[1])
-if type(n) == 'table' and n.err then n = redis.call('INCRBYFLOAT', KEYS[1], ARGV[1]) end
+if type(n) == 'table' and n.err then
+  n = redis.pcall('INCRBYFLOAT', KEYS[1], ARGV[1])
+  if type(n) == 'table' and n.err then
+    if string.find(n.err, 'not a valid float', 1, true) then return redis.error_reply('ERR inkan: not a number') end
+    return n
+  end
+end
 if existed == 0 and ARGV[2] ~= '' then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
 return n`;
 
@@ -134,7 +140,14 @@ export function redisStore(client, options = {}) {
 
     async increment(key, by = 1, ttl) {
       if (typeof by !== "number" || !Number.isFinite(by)) throw new TypeError(`redisStore: increment takes a finite number, not ${by}`);
-      const reply = await send("EVAL", INCREMENT, "1", k(key), String(by), ttl === undefined ? "" : px(ttl));
+      const t = ttl === undefined ? "" : px(ttl);
+      let reply;
+      try {
+        reply = await send("EVAL", INCREMENT, "1", k(key), String(by), t);
+      } catch (err) {
+        if (/inkan: not a number/.test(String(err?.message))) throw new TypeError("redisStore: increment on a key whose value is not a number");
+        throw err;
+      }
       return Number(text(reply));
     },
 
