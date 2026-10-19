@@ -80,6 +80,25 @@ other object is refused.
   missing key, `null` only for a stored `null`.
 - The suite from `@vxnsin/inkan/testing` (`storeConformance`) passes on both clients.
 
+## Security
+
+- **Publish/subscribe has no authentication.** A message is whatever arrives on the channel:
+  anyone who can `PUBLISH` to `<prefix><channel>` on the server can send one, and inkan's
+  jobs act on them (a forged message can cancel a running job or report false progress). Use
+  a Redis ACL user for the app that may only touch its prefix: `+@all ~inkan:* &inkan:*` (or
+  narrower), and no other user on the same channels. Do not share the server with tenants
+  you do not trust.
+- **Writing the store is trusting it.** Whoever can write the keys can forge sessions,
+  idempotent replies, job records and rate-limit counts, and whoever can read them reads
+  every session. Give the app's Redis user access to the store's keys (`~inkan:*`) and
+  channels (`&inkan:*`) and nothing else, and nobody else write access to them.
+- **Values are stored as JSON text**, as they are given: not encrypted, not signed. Keep
+  secrets out of them or encrypt them yourself; keys are stored as given too (under the
+  prefix), so do not put secrets in keys.
+- **Errors carry no keys or values.** A failing command rejects with a new `Error` that has
+  the server's message only; ioredis's `command` (with the key and value in its arguments)
+  is not passed on. Log them freely.
+
 ## Limits
 
 - **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets

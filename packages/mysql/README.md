@@ -78,6 +78,26 @@ CREATE TABLE inkan_events (
   client charset (gbk, big5, sjis) cannot turn a key into SQL. The only names in the SQL text
   are the two checked, backtick-quoted table names.
 
+## Security
+
+- **Publish/subscribe has no authentication.** A message is whatever arrives on the channel:
+  anyone who can `INSERT` into the `events` table can send one, and inkan's jobs act on them
+  (a forged message can cancel a running job or report false progress). Use a MySQL user of
+  its own for the app with grants on the two tables only, and no other user with `INSERT` on
+  them. Do not share the database with tenants you do not trust.
+- **Writing the store is trusting it.** Whoever can write the keys can forge sessions,
+  idempotent replies, job records and rate-limit counts, and whoever can read them reads
+  every session. Give the app's database user access to the store's two tables (`SELECT,
+  INSERT, UPDATE, DELETE` on them, plus `CREATE` with `create: true`) and nothing else, and
+  nobody else write access to them.
+- **Values are stored as JSON text**, as they are given: not encrypted, not signed. Keep
+  secrets out of them or encrypt them yourself; keys are stored as given too (under the
+  prefix), so do not put secrets in keys.
+- **Errors carry no keys or values.** A failing statement rejects with a new `Error` that
+  keeps `code`, `errno` and `sqlState`, its message with every quoted part replaced by `'…'`
+  (MySQL quotes values: "Duplicate entry '…'"); mysql2's `sql` is not passed on. Log them
+  freely.
+
 ## Limits
 
 - **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets

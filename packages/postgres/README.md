@@ -105,6 +105,28 @@ The driver is told apart by its methods: postgres.js has `unsafe` and `listen`, 
 - The suite from `@vxnsin/inkan/testing` (`storeConformance`) passes on a pg Pool, a pg
   Client and postgres.js.
 
+## Security
+
+- **Publish/subscribe has no authentication.** A message is whatever arrives on the channel:
+  any role that can connect to the database can `NOTIFY` (or `select pg_notify(…)`) any
+  channel, without a grant, so anyone with a login to that database can send one, and
+  inkan's jobs act on them (a forged message can cancel a running job or report false
+  progress). The channel names are hashes of table, prefix and channel, which hides nothing
+  from someone who knows them. Give the app a database of its own, and `CONNECT` on it only
+  to the roles that should be able to talk to the app. Do not share the database with
+  tenants you do not trust.
+- **Writing the store is trusting it.** Whoever can write the keys can forge sessions,
+  idempotent replies, job records and rate-limit counts, and whoever can read them reads
+  every session. Give the app's database user access to the store's table (`select, insert,
+  update, delete` on it) and nothing else, and nobody else write access to it.
+- **Values are stored as JSON text**, as they are given: not encrypted, not signed. Keep
+  secrets out of them or encrypt them yourself; keys are stored as given too (under the
+  prefix), so do not put secrets in keys.
+- **Errors carry no keys or values.** A failing statement rejects with a new `Error` that
+  keeps `code`, `severity`, `where` and the schema, table, column and constraint names, its
+  message with every quoted part replaced by `"…"`; pg's `detail` ("Key (value)=(…)") and
+  postgres.js's `query` and `parameters` are not passed on. Log them freely.
+
 ## Limits
 
 - **NOTIFY payloads are under 8000 bytes.** `publish` rejects a larger message (as JSON) with

@@ -75,6 +75,26 @@ over.
   do not exist: the collection is read every `poll` ms while someone listens, so a message
   arrives **up to about a second** later. Messages are kept a minute (a TTL index on `at`).
 
+## Security
+
+- **Publish/subscribe has no authentication.** A message is whatever arrives on the channel:
+  anyone who can insert into the `events` collection can send one, and inkan's jobs act on
+  them (a forged message can cancel a running job or report false progress). Use a MongoDB
+  user of its own for the app with a role limited to the two collections, and no other user
+  with write access to them. Do not share the database with tenants you do not trust.
+- **Writing the store is trusting it.** Whoever can write the keys can forge sessions,
+  idempotent replies, job records and rate-limit counts, and whoever can read them reads
+  every session. Give the app's database user access to the store's two collections (`find,
+  insert, update, remove`, `createIndex` with `create: true`, and `changeStream` on the
+  events) and nothing else, and nobody else write access to them.
+- **Values are stored as JSON text**, as they are given: not encrypted, not signed. Keep
+  secrets out of them or encrypt them yourself; keys are stored as given too (under the
+  prefix), so do not put secrets in keys.
+- **Errors carry no keys or values.** A failing command rejects with a new `Error` that
+  keeps `code` and `codeName`, its message without the "dup key" part and with every quoted
+  part replaced by `"…"`; the driver's `keyValue`, `keyPattern` and `errorResponse` are not
+  passed on. Log them freely.
+
 ## Limits
 
 - **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets
