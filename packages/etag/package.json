@@ -34,7 +34,7 @@
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@vxnsin/inkan": ">=0.7.0 <0.8.0"
+    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
     "@vxnsin/inkan": "file:../../../inkan-release-0.8"
