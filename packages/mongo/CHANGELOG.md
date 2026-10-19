@@ -8,4 +8,6 @@
   server's `$$NOW`, so nothing is seen after its TTL while the TTL monitor catches up.
 - `add`, `take` and `increment` are single atomic commands.
 - publish/subscribe through a change stream on a replica set or mongos, otherwise by
-  reading the messages collection every `poll` ms.
+  reading the messages collection every `poll` ms. The poller reads only messages dated up
+  to five seconds past the server's clock: one written with a date in the future neither
+  arrives nor moves the cursor past later messages.

@@ -114,6 +114,24 @@ for (const server of servers) {
       await store.close();
     });
 
+    test("polling: a message dated in the future neither arrives nor holds the later ones back", async () => {
+      const prefix = `f:${randomBytes(4).toString("hex")}:`;
+      const store = mongoStore(db, { prefix, changeStreams: false, poll: 20 });
+      const got: unknown[] = [];
+      const off = await store.subscribe("ch", (m) => got.push(m));
+      try {
+        await db.collection("inkan_events").insertOne({ c: `${prefix}ch`, m: JSON.stringify("forged"), at: new Date(Date.now() + 3_600_000) });
+        await sleep(200);
+        await store.publish("ch", "real");
+        await until(() => got.length > 0, 5000);
+        await sleep(100);
+        assert.deepEqual(got, ["real"]);
+      } finally {
+        off();
+        await store.close();
+      }
+    });
+
     test("takes a Collection too", async () => {
       const store = mongoStore(db.collection("inkan_other"), { ...server.options, prefix: randomBytes(4).toString("hex") });
       await store.set("k", 1, 60_000);

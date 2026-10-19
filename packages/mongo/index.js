@@ -174,8 +174,10 @@ export function mongoStore(target, options = {}) {
     let timer;
     let running;
     const read = async (deliver) => {
+      // a message dated past the server's clock is not one of ours (publish dates by $$NOW):
+      // left out, so it can neither arrive nor move the cursor past the messages to come
       const docs = await col
-        .find({ c: { $in: [...channels.keys()] }, at: { $gte: new Date(cursor - LOOKBACK) } })
+        .find({ c: { $in: [...channels.keys()] }, at: { $gte: new Date(cursor - LOOKBACK) }, $expr: { $lte: ["$at", { $add: ["$$NOW", LOOKBACK] }] } })
         .sort({ at: 1, _id: 1 })
         .toArray();
       for (const doc of docs) {
