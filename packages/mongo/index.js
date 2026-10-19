@@ -289,26 +289,32 @@ export function mongoStore(target, options = {}) {
                 $let: {
                   vars: { live: LIVE },
                   in: {
-                    _id: "$_id",
-                    n: {
-                      $add: [
-                        {
+                    $let: {
+                      // the count so far: 0 for a missing or expired key, null for a live
+                      // value that is not a number (JSON text that does not convert)
+                      vars: {
+                        count: {
                           $cond: [
                             live,
                             {
                               $cond: [
                                 { $isNumber: "$n" },
                                 "$n",
-                                { $convert: { input: { $ifNull: ["$v", null] }, to: "double", onError: 0, onNull: 0 } },
+                                { $convert: { input: { $ifNull: ["$v", null] }, to: "double", onError: null, onNull: null } },
                               ],
                             },
                             0,
                           ],
                         },
-                        { $literal: step },
-                      ],
+                      },
+                      in: {
+                        $cond: [
+                          { $eq: ["$$count", null] },
+                          "$$ROOT", // left as it was, and refused below
+                          { _id: "$_id", n: { $add: ["$$count", { $literal: step }] }, e: { $cond: [live, "$e", until(ttl)] } },
+                        ],
+                      },
                     },
-                    e: { $cond: [live, "$e", until(ttl)] },
                   },
                 },
               },
@@ -317,6 +323,7 @@ export function mongoStore(target, options = {}) {
           { upsert: true, returnDocument: "after", projection: { n: 1 } },
         ),
       );
+      if (typeof doc?.n !== "number") throw new TypeError("mongoStore: increment on a key whose value is not a number");
       return doc.n;
     },
 

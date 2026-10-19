@@ -151,6 +151,21 @@ for (const server of servers) {
       }
     });
 
+    test("increment on a value that is not a number throws a TypeError and leaves it", async () => {
+      const store = mongoStore(db, { ...server.options, prefix: `s:${randomBytes(4).toString("hex")}:` });
+      try {
+        for (const value of ["not a number", "5", true, null, { n: 1 }, [1]]) {
+          await store.set("s", value, 60_000);
+          await assert.rejects(store.increment("s", 2), TypeError, `${JSON.stringify(value)} is not a number`);
+          assert.deepEqual(await store.get("s"), value, "and it stays as it was");
+        }
+        await store.set("s", 5);
+        assert.equal(await store.increment("s", 2), 7, "a number counts on");
+      } finally {
+        await store.close();
+      }
+    });
+
     test("takes a Collection too", async () => {
       const store = mongoStore(db.collection("inkan_other"), { ...server.options, prefix: randomBytes(4).toString("hex") });
       await store.set("k", 1, 60_000);
