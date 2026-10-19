@@ -48,7 +48,7 @@ in any worker, and progress and cancels reach the others through LISTEN/NOTIFY.
 | --- | --- | --- |
 | `table` | `"inkan_store"` | the table; letters, digits and `_`, at most 63 |
 | `schema` | the `search_path` | the schema the table is in; it must exist |
-| `prefix` | `""` | put in front of every key and channel, for two apps on one table |
+| `prefix` | `"inkan:"` | put in front of every key and channel, for two apps on one table; ends in `:` (added when missing) |
 | `create` | `true` | create the table and its index when they are missing |
 | `sweep` | `60000` | delete expired rows once at startup and then every this many ms; `0` turns it off |
 | `listener` | from the pool | pg only: the connection LISTEN runs on (see below) |
@@ -119,8 +119,16 @@ The driver is told apart by its methods: postgres.js has `unsafe` and `listen`, 
 - `now()` is the start of the transaction, so the TTL counts from when the statement began.
 - The sweep runs in every process that has the store; the deletes overlap harmlessly. Rows
   without a TTL stay until deleted.
-- The database should be UTF-8, or values with characters its encoding lacks fail. A key
-  cannot contain the NUL character `\0` (PostgreSQL text cannot hold it); in a value it is
-  escaped by JSON and fine.
+- The database should be UTF-8, or values with characters its encoding lacks fail.
+- **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets
+  it (`"app"` is `"app:"`), so prefix `"app"` with key `"1x"` and prefix `"app1"` with key
+  `"x"` stay apart. `""` puts nothing in front. Do not give one use a prefix that starts
+  another's (`"app:"` and `"app:sessions:"` can meet). A key or channel holding NUL (`\0`,
+  which PostgreSQL text cannot hold) or a lone UTF-16 surrogate is refused with a `TypeError`,
+  in all four inkan stores alike; in a value either is escaped by JSON and fine.
+- **Long keys.** A key (with its prefix) longer than 2048 bytes of UTF-8 is kept under
+  `\x01sha256:<hex>` of it (`storedKey`), as in @inkanjs/mysql, so it fits the primary key's
+  btree. Two different keys share a row only if SHA-256 collides; keys starting with `\x01`
+  are hashed too, so no key can pose as a hash.
 - Every call is a round trip. For thousands of increments a second, Redis is the better
   store.

@@ -11,6 +11,10 @@
   RangeError otherwise), as in the other stores.
 - `increment` on a live key whose value is not a JSON number rejects with a `TypeError` and
   leaves the value alone (it counted such a value as 0).
+- Keys and channels under `prefix`, default `"inkan:"`, which ends in `:` (added when
+  missing) so two prefixes cannot run into each other's keys. A key or channel with NUL or a
+  lone surrogate is refused with a `TypeError`. Keys over 2048 bytes are kept under their
+  SHA-256 (`storedKey`), as in @inkanjs/mysql, instead of failing on the btree's size limit.
 - Values as JSON text, so they come back exactly as `JSON.stringify` made them.
 - `publish`/`subscribe` on LISTEN/NOTIFY (messages under 8000 bytes), on one connection
   kept out of the pool; a dropped one is replaced. A connection whose LISTEN fails goes back

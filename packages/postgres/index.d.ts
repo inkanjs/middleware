@@ -16,7 +16,10 @@ export type PostgresStoreOptions = {
   table?: string;
   /** The schema the table is in, which must exist. Default: the connection's `search_path`. */
   schema?: string;
-  /** Put in front of every key and channel, for two apps on one table. Default `""`. */
+  /**
+   * Put in front of every key and channel, for two apps on one table. Ends in `:` (one is
+   * added when missing); `""` for none. Default `"inkan:"`.
+   */
   prefix?: string;
   /** Create the table and its index when they are missing. Default true. */
   create?: boolean;
@@ -49,3 +52,6 @@ export interface PostgresStore extends Store {
  */
 export declare function postgresStore(db: PgQueryable | PostgresJsSql, options?: PostgresStoreOptions): PostgresStore;
 export default postgresStore;
+
+/** What a key is kept under: itself, or `\x01sha256:<hex>` when it is longer than 2048 bytes (or starts with `\x01`). */
+export declare function storedKey(key: string): string;

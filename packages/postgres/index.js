@@ -26,6 +26,29 @@ const json = (value) => {
   if (s === undefined) throw new TypeError("postgresStore: undefined is not a value a store keeps");
   return s;
 };
+/** A key or channel as given, or a TypeError: a string without NUL and without a lone surrogate. */
+const checked = (key, what = "key") => {
+  if (typeof key !== "string") throw new TypeError(`postgresStore: a ${what} is a string, not ${typeof key}`);
+  if (key.includes("\0") || !key.isWellFormed()) throw new TypeError(`postgresStore: a ${what} cannot hold NUL or a lone surrogate`);
+  return key;
+};
+
+/** The prefix: "" for none, otherwise ending in ":" (added when missing), so a key never runs into another prefix. */
+const prefixOf = (prefix) => {
+  checked(prefix, "prefix");
+  return prefix === "" || prefix.endsWith(":") ? prefix : `${prefix}:`;
+};
+
+/** Keys up to this many bytes of UTF-8 are kept as they are; a btree entry must stay under about 2.7 KB. */
+const KEY_MAX = 2048;
+
+/** What a key is kept under: itself, or `\x01sha256:<hex>` when it is longer than KEY_MAX bytes (as @inkanjs/mysql does). */
+export function storedKey(key) {
+  // \x01 starts only hashed keys, so a key that looks like a hash is hashed as well
+  if (Buffer.byteLength(key, "utf8") <= KEY_MAX && !key.startsWith("\x01")) return key;
+  return `\x01sha256:${createHash("sha256").update(key, "utf8").digest("hex")}`;
+}
+
 /** A JSON number, as the text of a value. */
 const IS_NUMBER = /^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][-+]?[0-9]+)?$/;
 /** Ten years in ms: the longest TTL taken. */
@@ -101,10 +124,9 @@ export function postgresStore(db, options = {}) {
   const { kind, pool, query } = driver(db);
   const tableName = options.table ?? "inkan_store";
   const table = (options.schema === undefined ? "" : `${ident(options.schema, "schema")}.`) + ident(tableName, "table");
-  const prefix = options.prefix ?? "";
-  if (typeof prefix !== "string") throw new TypeError("postgresStore: prefix is a string");
+  const prefix = prefixOf(options.prefix ?? "inkan:");
   const sweepEvery = options.sweep ?? 60_000;
-  const k = (key) => prefix + key;
+  const k = (key) => storedKey(prefix + checked(key));
 
   const ready = options.create === false ? Promise.resolve() : ensureTable(db, query, table, tableName);
   ready.catch(() => {}); // reported by the first call that waits for it
@@ -169,7 +191,7 @@ export function postgresStore(db, options = {}) {
   // of the table and the channel, so any channel name fits (an identifier is at most 63 bytes)
   /** @type {Map<string, { fns: Set<(message: unknown) => void>, ready: Promise<void> }>} */
   const channels = new Map();
-  const physical = (channel) => `inkan_${createHash("sha256").update(`${table}\0${k(channel)}`).digest("hex").slice(0, 40)}`;
+  const physical = (channel) => `inkan_${createHash("sha256").update(`${table}\0${prefix}${checked(channel, "channel")}`).digest("hex").slice(0, 40)}`;
   const deliver = (name, payload) => {
     const fns = channels.get(name)?.fns;
     if (!fns || !fns.size) return;

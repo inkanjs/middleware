@@ -9,7 +9,7 @@ import { join } from "node:path";
 import pg from "pg";
 import postgres from "postgres";
 import { storeConformance } from "@vxnsin/inkan/testing";
-import { postgresStore, type PostgresStore } from "./index.js";
+import { postgresStore, storedKey, type PostgresStore } from "./index.js";
 
 // The server: DATABASE_URL when set (CI runs a postgres:17 service), else embedded-postgres,
 // whose binaries come with its npm package for this platform. Without either: skipped.
@@ -219,6 +219,59 @@ if (typeof srv === "string") {
           } catch {}
         }
         await p.end();
+      }
+    });
+
+    it("a prefix ends in ':' (one is added); keys with NUL or a lone surrogate are refused", async () => {
+      const base = `p${randomUUID().replaceAll("-", "")}`;
+      const a = postgresStore(pool, { table, prefix: base, sweep: 0 });
+      const b = postgresStore(pool, { table, prefix: `${base}1`, sweep: 0 });
+      const plain = postgresStore(pool, { table, sweep: 0 });
+      try {
+        await a.set("1x", "a");
+        await b.set("x", "b");
+        assert.equal(await a.get("1x"), "a", "prefix p + key 1x is not prefix p1 + key x");
+        assert.equal((await pool.query(`select 1 from "${table}" where key = $1`, [`${base}:1x`])).rows.length, 1);
+        const k = randomUUID();
+        await plain.set(k, 1);
+        assert.equal((await pool.query(`select 1 from "${table}" where key = $1`, [`inkan:${k}`])).rows.length, 1, "the default prefix is inkan:");
+        assert.throws(() => postgresStore(pool, { table, prefix: "a\0" }), TypeError);
+        for (const bad of ["a\0b", "\uD800", "x\uDC00y"]) {
+          await assert.rejects(a.set(bad, 1), TypeError, JSON.stringify(bad));
+          await assert.rejects(a.get(bad), TypeError);
+          await assert.rejects(a.increment(bad), TypeError);
+          await assert.rejects(a.publish(bad, 1), TypeError);
+          await assert.rejects(a.subscribe(bad, () => {}), TypeError);
+        }
+        await assert.rejects(a.get(1 as never), TypeError);
+      } finally {
+        await a.close();
+        await b.close();
+        await plain.close();
+      }
+    });
+
+    it("keys longer than 2048 bytes are kept under their SHA-256, as in the MySQL store", async () => {
+      const prefix = fresh();
+      const store = postgresStore(pool, { table, prefix, sweep: 0 });
+      try {
+        const long = "k".repeat(5000);
+        const other = "k".repeat(4999) + "j";
+        await store.set(long, 1);
+        await store.set(other, 2);
+        assert.equal(await store.get(long), 1);
+        assert.equal(await store.get(other), 2);
+        assert.equal(await store.increment(long, 1), 2);
+        assert.equal(await store.take(long), 2);
+        assert.equal(await store.add(long, 3, 60_000), true);
+        const hashed = storedKey(prefix + other);
+        assert.match(hashed, /^\x01sha256:[0-9a-f]{64}$/);
+        assert.equal((await pool.query(`select 1 from "${table}" where key = $1`, [hashed])).rows.length, 1);
+        assert.equal(await store.get(storedKey(other)), undefined, "a key that looks like a hash is not the hash");
+        assert.equal(storedKey("ü".repeat(1024)), "ü".repeat(1024), "2048 bytes stay");
+        assert.notEqual(storedKey("ü".repeat(1025)), "ü".repeat(1025), "2050 bytes are hashed");
+      } finally {
+        await store.close();
       }
     });
 
