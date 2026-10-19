@@ -168,6 +168,57 @@ if (typeof srv === "string") {
       }
     });
 
+    it("a LISTEN that fails gives its connection back closed and leaves no handler on it", async () => {
+      const p = new pg.Pool({ connectionString: srv.url, max: 2 });
+      const taken: { client: pg.PoolClient; handlers: [string, (...args: unknown[]) => void][] }[] = [];
+      const released: (Error | boolean | undefined)[] = [];
+      const connect = p.connect.bind(p) as (...args: unknown[]) => Promise<pg.PoolClient>;
+      // pool.query takes its connection with a callback: only the store's own connect() is watched
+      (p as unknown as { connect: (...args: unknown[]) => unknown }).connect = (...args: unknown[]) => (args.length ? connect(...args) : take());
+      const take = async () => {
+        const client = await connect();
+        const handlers: [string, (...args: unknown[]) => void][] = [];
+        taken.push({ client, handlers });
+        // what is put on it while the store has it (the pool puts its own on at release)
+        let out = true;
+        const on = client.on.bind(client) as (event: string, fn: (...args: unknown[]) => void) => unknown;
+        (client as unknown as { on: (event: string, fn: (...args: unknown[]) => void) => unknown }).on = (event, fn) => {
+          if (out) handlers.push([event, fn]);
+          return on(event, fn);
+        };
+        const release = client.release.bind(client);
+        client.release = (err?: Error | boolean) => {
+          if (out) released.push(err);
+          out = false;
+          return release(err);
+        };
+        const query = client.query.bind(client) as (...args: unknown[]) => Promise<unknown>;
+        (client as unknown as { query: (...args: unknown[]) => Promise<unknown> }).query = (text: unknown, ...rest: unknown[]) =>
+          typeof text === "string" && text.startsWith("listen") ? Promise.reject(new Error("LISTEN refused")) : query(text, ...rest);
+        return client;
+      };
+      const store = postgresStore(p, { table, prefix: fresh(), sweep: 0 });
+      try {
+        await assert.rejects(store.subscribe("c", () => {}), /LISTEN refused/);
+        await assert.rejects(store.subscribe("c", () => {}), /LISTEN refused/);
+        assert.equal(taken.length, 2, "each try takes a connection");
+        for (const { client, handlers } of taken) {
+          assert.ok(handlers.length >= 2, "the store put its handlers on it");
+          for (const [event, fn] of handlers) assert.ok(!client.listeners(event).includes(fn), `the ${event} handler is gone`);
+        }
+        assert.equal(p.totalCount - p.idleCount, 0, "none is held out of the pool");
+        assert.deepEqual(released, [true, true], "both went back closed");
+      } finally {
+        await store.close();
+        for (const { client } of taken) {
+          try {
+            client.release(true); // one that leaked would hold p.end() forever
+          } catch {}
+        }
+        await p.end();
+      }
+    });
+
     it("refuses a message NOTIFY cannot carry", async () => {
       const store = postgresStore(pool, { table, prefix: fresh() });
       await assert.rejects(store.publish("c", "x".repeat(8000)), RangeError);

@@ -194,18 +194,31 @@ export function postgresStore(db, options = {}) {
       const conn = options.listener ?? (pool ? await db.connect() : db);
       if (conn !== db && !queues.has(conn)) queues.set(conn, queued(conn));
       conn.on("notification", onNotification);
-      if (owned) {
-        // a dropped connection: listen again on a new one; what was sent meanwhile is lost
-        conn.on("error", (err) => {
-          conn.off("notification", onNotification);
-          listening = undefined;
+      // a dropped connection: listen again on a new one; what was sent meanwhile is lost
+      const onError = (err) => {
+        conn.off("notification", onNotification);
+        conn.off("error", onError);
+        listening = undefined;
+        try {
+          conn.release(err);
+        } catch {}
+        retry();
+      };
+      if (owned) conn.on("error", onError);
+      try {
+        for (const name of channels.keys()) await on(conn, `listen "${name}"`);
+      } catch (err) {
+        // nothing of this try stays: no handler on the connection, and one from the pool goes
+        // back closed (it may be listening on some channels), so a retry each second leaks none
+        conn.off("notification", onNotification);
+        if (owned) {
+          conn.off("error", onError);
           try {
-            conn.release(err);
+            conn.release(true);
           } catch {}
-          retry();
-        });
+        }
+        throw err;
       }
-      for (const name of channels.keys()) await on(conn, `listen "${name}"`);
       return { conn, owned };
     })().catch((err) => {
       listening = undefined;
