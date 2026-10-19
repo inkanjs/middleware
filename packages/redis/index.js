@@ -35,6 +35,19 @@ const json = (value) => {
   if (s === undefined) throw new TypeError("redisStore: undefined is not a value a store keeps");
   return s;
 };
+/** A key or channel as given, or a TypeError: a string without NUL and without a lone surrogate. */
+const checked = (key, what = "key") => {
+  if (typeof key !== "string") throw new TypeError(`redisStore: a ${what} is a string, not ${typeof key}`);
+  if (key.includes("\0") || !key.isWellFormed()) throw new TypeError(`redisStore: a ${what} cannot hold NUL or a lone surrogate`);
+  return key;
+};
+
+/** The prefix: "" for none, otherwise ending in ":" (added when missing), so a key never runs into another prefix. */
+const prefixOf = (prefix) => {
+  checked(prefix, "prefix");
+  return prefix === "" || prefix.endsWith(":") ? prefix : `${prefix}:`;
+};
+
 /** Ten years in ms: the longest TTL taken. */
 const MAX_TTL = 315_576_000_000;
 /** PX takes whole milliseconds: rounding up never lets a key go early. */
@@ -58,9 +71,8 @@ function commands(client) {
  */
 export function redisStore(client, options = {}) {
   const send = commands(client);
-  const prefix = options.prefix ?? "inkan:";
-  if (typeof prefix !== "string") throw new TypeError("redisStore: prefix is a string");
-  const k = (key) => prefix + key;
+  const prefix = prefixOf(options.prefix ?? "inkan:");
+  const k = (key, what) => prefix + checked(key, what);
 
   let getdel = true; // until the server says it does not know GETDEL
 
@@ -152,11 +164,11 @@ export function redisStore(client, options = {}) {
     },
 
     async publish(channel, message) {
-      await send("PUBLISH", k(channel), json(message));
+      await send("PUBLISH", k(channel, "channel"), json(message));
     },
 
     async subscribe(channel, fn) {
-      const name = k(channel);
+      const name = k(channel, "channel");
       let entry = channels.get(name);
       if (!entry) {
         // SUBSCRIBE once per channel; a second subscribe meanwhile waits for the same one

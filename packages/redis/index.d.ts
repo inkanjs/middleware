@@ -16,7 +16,10 @@ export interface IoRedisClient {
 export type RedisClient = NodeRedisClient | IoRedisClient;
 
 export type RedisStoreOptions = {
-  /** Put in front of every key and channel. Give two apps on one server their own. Default `"inkan:"`. */
+  /**
+   * Put in front of every key and channel. Give two apps on one server their own. Ends in `:`
+   * (one is added when missing); `""` for none. Default `"inkan:"`.
+   */
   prefix?: string;
   /**
    * The connection SUBSCRIBE runs on, which can do nothing else while it listens. Default: a

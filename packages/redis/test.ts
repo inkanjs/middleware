@@ -69,6 +69,26 @@ if (typeof srv === "string") {
       await store.close();
     });
 
+    it("a prefix ends in ':' (one is added); keys with NUL or a lone surrogate are refused", async () => {
+      const base = `p${randomUUID()}`;
+      const a = redisStore(io, { prefix: base });
+      const b = redisStore(io, { prefix: `${base}1` });
+      await a.set("1x", "a");
+      await b.set("x", "b");
+      assert.equal(await a.get("1x"), "a", "prefix p + key 1x is not prefix p1 + key x");
+      assert.equal(await io.get(`${base}:1x`), '"a"');
+      assert.throws(() => redisStore(io, { prefix: "a\0" }), TypeError);
+      for (const bad of ["a\0b", "\uD800", "x\uDC00y"]) {
+        await assert.rejects(a.set(bad, 1), TypeError, JSON.stringify(bad));
+        await assert.rejects(a.get(bad), TypeError);
+        await assert.rejects(a.increment(bad), TypeError);
+        await assert.rejects(a.publish(bad, 1), TypeError);
+        await assert.rejects(a.subscribe(bad, () => {}), TypeError);
+      }
+      await assert.rejects(a.get(1 as never), TypeError);
+      await io.del(`${base}:1x`, `${base}1:x`);
+    });
+
     it("increment gives a new key the TTL and keeps it after; numbers that are not whole count too", async () => {
       const prefix = fresh();
       const store = redisStore(node, { prefix });

@@ -10,6 +10,8 @@
   RangeError otherwise), as in the other stores.
 - `increment` on a key whose value is not a JSON number rejects with a `TypeError` (it was
   the Redis error), as in the other stores.
+- A prefix ends in `:` (one is added when missing), so two prefixes cannot run into each
+  other's keys. A key or channel with NUL or a lone surrogate is refused with a `TypeError`.
 - `publish`/`subscribe` on Redis Pub/Sub, with a duplicated connection made at the first
   `subscribe` and closed by `store.close()`.
 - Passes `storeConformance` from `@vxnsin/inkan/testing` on both clients.

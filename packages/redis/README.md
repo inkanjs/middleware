@@ -46,7 +46,7 @@ in any worker, and progress and cancels reach the others through publish/subscri
 
 | option | default | |
 | --- | --- | --- |
-| `prefix` | `"inkan:"` | put in front of every key and channel; give two apps on one server their own |
+| `prefix` | `"inkan:"` | put in front of every key and channel; ends in `:` (added when missing); give two apps on one server their own |
 | `subscriber` | `client.duplicate()` | the connection SUBSCRIBE runs on; made at the first `subscribe`, closed by `close()`. One you pass is yours to open and close |
 
 `store.close()` closes only the subscriber connection the store made. The client you passed
@@ -82,6 +82,11 @@ other object is refused.
 
 ## Limits
 
+- **Keys and the prefix.** The prefix (default `"inkan:"`) ends in `:`; one without gets
+  it (`"app"` is `"app:"`), so prefix `"app"` with key `"1x"` and prefix `"app1"` with key
+  `"x"` stay apart. `""` puts nothing in front. Do not give one use a prefix that starts
+  another's (`"app:"` and `"app:sessions:"` can meet). A key or channel holding NUL (`\0`) or a
+  lone UTF-16 surrogate is refused with a `TypeError`, in all four inkan stores alike.
 - **Publish/subscribe is Redis Pub/Sub:** at most once, nothing kept. A message published
   while a subscriber is reconnecting is lost. inkan's jobs live with that (the job record
   in the store is the truth, messages only make others hear sooner).
