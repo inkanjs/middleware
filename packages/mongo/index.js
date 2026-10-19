@@ -28,8 +28,16 @@ const LIVE = {
 };
 const UNEXPIRED = { $expr: { $or: [{ $eq: [{ $ifNull: ["$e", null] }, null] }, { $gt: ["$e", "$$NOW"] }] } };
 
+/** Ten years in ms: the longest TTL taken. */
+const MAX_TTL = 315_576_000_000;
+
 /** When a key with this TTL ends, as an aggregation expression: null for none. */
-const until = (ttl) => (ttl === undefined || ttl === null ? null : { $add: ["$$NOW", Math.max(0, Math.ceil(Number(ttl)))] });
+const until = (ttl) => {
+  if (ttl === undefined || ttl === null) return null;
+  if (typeof ttl !== "number" || !Number.isFinite(ttl)) throw new TypeError(`mongoStore: a TTL is a finite number of milliseconds, not ${String(ttl)}`);
+  if (ttl <= 0 || ttl > MAX_TTL) throw new RangeError(`mongoStore: a TTL is more than 0 and at most ten years (${MAX_TTL} ms), not ${ttl}`);
+  return { $add: ["$$NOW", Math.ceil(ttl)] };
+};
 
 const json = (value) => JSON.stringify(value === undefined ? null : value);
 
@@ -269,7 +277,8 @@ export function mongoStore(target, options = {}) {
 
     async increment(key, by = 1, ttl) {
       await setup();
-      const step = Number(by);
+      const step = by;
+      if (typeof step !== "number" || !Number.isFinite(step)) throw new TypeError(`mongoStore: increment takes a finite number, not ${String(by)}`);
       const live = "$$live";
       const doc = await retrying(() =>
         keys.findOneAndUpdate(

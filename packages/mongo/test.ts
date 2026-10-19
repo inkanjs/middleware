@@ -132,6 +132,25 @@ for (const server of servers) {
       }
     });
 
+    test("refuses a step or a TTL that is not a sane number", async () => {
+      const store = mongoStore(db, { ...server.options, prefix: `n:${randomBytes(4).toString("hex")}:` });
+      try {
+        for (const by of [NaN, Infinity, -Infinity, "1"]) await assert.rejects(store.increment("n", by as never), TypeError, String(by));
+        assert.equal(await store.get("n"), undefined, "no NaN or null was counted");
+        for (const ttl of [NaN, Infinity, "10"]) {
+          await assert.rejects(store.set("t", 1, ttl as never), TypeError, String(ttl));
+          await assert.rejects(store.add("t", 1, ttl as never), TypeError, String(ttl));
+          await assert.rejects(store.increment("t", 1, ttl as never), TypeError, String(ttl));
+        }
+        for (const ttl of [0, -5, 315_576_000_001]) await assert.rejects(store.set("t", 1, ttl), RangeError, String(ttl));
+        assert.equal(await store.get("t"), undefined, "nothing was written");
+        await store.set("t", 1, 315_576_000_000);
+        assert.equal(await store.get("t"), 1);
+      } finally {
+        await store.close();
+      }
+    });
+
     test("takes a Collection too", async () => {
       const store = mongoStore(db.collection("inkan_other"), { ...server.options, prefix: randomBytes(4).toString("hex") });
       await store.set("k", 1, 60_000);
