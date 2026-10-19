@@ -1,0 +1,51 @@
+{
+  "name": "@inkanjs/mongo",
+  "version": "0.1.0",
+  "description": "A MongoDB Store for inkan: jobs, rate limits, sessions and idempotency keys shared by every process, on your own mongodb client.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/mongo"
+  },
+  "keywords": [
+    "inkan",
+    "store",
+    "mongodb",
+    "mongo",
+    "rate-limit",
+    "session",
+    "jobs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@vxnsin/inkan": "file:../../../inkan-release-0.8",
+    "mongodb": "^7.7.0",
+    "mongodb-memory-server-core": "^11.3.0"
+  },
+  "scripts": {
+    "test": "node --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

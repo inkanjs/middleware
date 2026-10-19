@@ -1,0 +1,323 @@
+// A `Store` for inkan on MySQL 8, with the user's own `mysql2/promise` pool. No dependency
+// of its own.
+//
+//   const store = mysqlStore(mysql.createPool(process.env.MYSQL_URL));
+//   app.job("/exports", { store }, run);
+//
+// One row a key: k VARBINARY(255) (exact bytes: case, trailing spaces and accents all count),
+// v JSON, e DATETIME(3) in UTC or NULL. Every read filters on `e > UTC_TIMESTAMP(3)`, the
+// server's clock, so app servers whose clocks differ still agree; a sweep deletes what is
+// over every `sweep` ms. Keys longer than 255 bytes are kept under their SHA-256.
+//
+// SQL: table names are checked against /^[A-Za-z_][A-Za-z0-9_]*$/ and quoted; every value is
+// a parameter.
+
+import { createHash } from "node:crypto";
+
+const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const RETRY = new Set([1213, 1205]); // deadlock, lock wait timeout
+const LOOKBACK = 5000; // ms a message may commit after a newer one and still arrive
+const KEEP_EVENTS = 60; // s a message stays in the table
+const NOW = "UTC_TIMESTAMP(3)";
+const LIVE = `(e IS NULL OR e > ${NOW})`;
+const NUMBER = "('INTEGER','UNSIGNED INTEGER','DOUBLE','DECIMAL')";
+
+const ident = (name, what) => {
+  if (typeof name !== "string" || !NAME.test(name)) throw new TypeError(`mysqlStore: ${what} must match ${NAME}, got ${JSON.stringify(name)}`);
+  return `\`${name}\``;
+};
+
+/** What a key or channel is kept under: itself, or its SHA-256 when it is longer than 255 bytes. */
+export function storedKey(key) {
+  // \x01 starts only hashed keys, so a key that looks like a hash is hashed as well
+  if (Buffer.byteLength(key, "utf8") <= 255 && !key.startsWith("\x01")) return key;
+  return `\x01sha256:${createHash("sha256").update(key, "utf8").digest("hex")}`;
+}
+
+/** The end of a TTL as SQL and its parameters: NULL for none. */
+const until = (ttl) =>
+  ttl === undefined || ttl === null ? ["NULL", []] : [`${NOW} + INTERVAL ? MICROSECOND`, [Math.max(0, Math.ceil(Number(ttl))) * 1000]];
+
+const json = (value) => JSON.stringify(value === undefined ? null : value);
+const parse = (text) => (text === null || text === undefined ? undefined : JSON.parse(Buffer.isBuffer(text) ? text.toString("utf8") : text));
+
+const utc = (text) => Date.parse(`${text.replace(" ", "T")}Z`);
+const sqlTime = (ms) => new Date(ms).toISOString().replace("T", " ").replace("Z", "");
+
+/**
+ * A `Store` on MySQL 8 (or later), on a `mysql2/promise` pool.
+ * @param {import("./index.d.ts").MysqlPoolLike} pool
+ * @param {import("./index.d.ts").MysqlStoreOptions} [options]
+ */
+export function mysqlStore(pool, options = {}) {
+  if (!pool || typeof pool.query !== "function" || typeof pool.getConnection !== "function") {
+    throw new TypeError("mysqlStore: pass a mysql2/promise pool (it needs query and getConnection)");
+  }
+  const table = ident(options.table ?? "inkan_store", "table");
+  const events = ident(options.events ?? "inkan_events", "events");
+  const prefix = options.prefix ?? "";
+  const create = options.create ?? true;
+  const sweepEvery = options.sweep ?? 60_000;
+  const poll = Math.max(10, options.poll ?? 1000);
+  const id = (key) => storedKey(prefix + key);
+  const v = `CAST(v AS CHAR CHARACTER SET utf8mb4) AS v`;
+
+  let ready;
+  const setup = () =>
+    (ready ??= (async () => {
+      if (create) {
+        await pool.query(
+          `CREATE TABLE IF NOT EXISTS ${table} (k VARBINARY(255) NOT NULL PRIMARY KEY, v JSON NOT NULL, e DATETIME(3) NULL, KEY inkan_e (e)) ENGINE=InnoDB`,
+        );
+        await pool.query(
+          `CREATE TABLE IF NOT EXISTS ${events} (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, c VARBINARY(255) NOT NULL, m LONGTEXT CHARACTER SET utf8mb4 NOT NULL, at DATETIME(3) NOT NULL, KEY inkan_at (at)) ENGINE=InnoDB`,
+        );
+      }
+      if (sweepEvery > 0 && !closed) {
+        sweeper = setInterval(() => sweep().catch(() => {}), sweepEvery);
+        sweeper.unref?.();
+      }
+    })().catch((err) => {
+      ready = undefined;
+      throw err;
+    }));
+  let sweeper;
+  let closed = false;
+
+  const sweep = async () => {
+    await pool.query(`DELETE FROM ${table} WHERE e <= ${NOW} LIMIT 10000`);
+    await pool.query(`DELETE FROM ${events} WHERE at < ${NOW} - INTERVAL ${KEEP_EVENTS} SECOND LIMIT 10000`);
+  };
+
+  /** Runs `fn` in a transaction on a connection of its own, again after a deadlock. */
+  const transaction = async (fn) => {
+    for (let i = 0; ; i++) {
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const result = await fn(conn);
+        await conn.commit();
+        return result;
+      } catch (err) {
+        await conn.rollback().catch(() => {});
+        if (!RETRY.has(err?.errno) || i >= 20) throw err;
+      } finally {
+        conn.release();
+      }
+      await new Promise((r) => setTimeout(r, Math.random() * 5 * (i + 1)));
+    }
+  };
+  const retrying = async (fn) => {
+    for (let i = 0; ; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (!RETRY.has(err?.errno) || i >= 20) throw err;
+      }
+      await new Promise((r) => setTimeout(r, Math.random() * 5 * (i + 1)));
+    }
+  };
+
+  // publish/subscribe: a poller that runs while anybody listens
+  const channels = new Map(); // stored channel -> Set of fns
+  let starting;
+  let poller;
+
+  const dispatch = (row) => {
+    const fns = channels.get(Buffer.isBuffer(row.c) ? row.c.toString("utf8") : String(row.c));
+    if (!fns) return;
+    let message;
+    try {
+      message = parse(row.m);
+    } catch {
+      return;
+    }
+    for (const fn of [...fns]) {
+      try {
+        fn(message);
+      } catch {}
+    }
+  };
+
+  async function openPoller() {
+    const seen = new Map(); // id -> at (ms)
+    const [[{ now }]] = await pool.query(`SELECT CAST(${NOW} AS CHAR) AS now`);
+    let cursor = utc(now);
+    let stopped = false;
+    let timer;
+    let running;
+    const read = async (deliver) => {
+      const names = [...channels.keys()];
+      if (!names.length) return;
+      const [rows] = await pool.query(`SELECT id, c, m, CAST(at AS CHAR) AS at FROM ${events} WHERE at >= ? AND c IN (?) ORDER BY id`, [
+        sqlTime(cursor - LOOKBACK),
+        names,
+      ]);
+      for (const row of rows) {
+        const key = String(row.id);
+        if (seen.has(key)) continue;
+        const at = utc(row.at);
+        seen.set(key, at);
+        if (at > cursor) cursor = at;
+        if (deliver && !stopped) dispatch(row);
+      }
+      for (const [key, at] of seen) if (at < cursor - LOOKBACK) seen.delete(key);
+    };
+    await read(false); // what is there already is not for these subscribers
+    const tick = () => {
+      if (stopped) return;
+      running = read(true)
+        .catch(() => {})
+        .finally(() => {
+          if (stopped) return;
+          timer = setTimeout(tick, poll);
+          timer.unref?.();
+        });
+    };
+    timer = setTimeout(tick, poll);
+    timer.unref?.();
+    return {
+      async stop() {
+        stopped = true;
+        clearTimeout(timer);
+        await running;
+      },
+    };
+  }
+
+  const startListening = () =>
+    (starting ??= (async () => {
+      await setup();
+      poller = await openPoller();
+    })().catch((err) => {
+      starting = undefined;
+      throw err;
+    }));
+
+  const stopListening = async () => {
+    if (channels.size || !starting) return;
+    const was = starting;
+    starting = undefined;
+    await was.catch(() => {});
+    const p = poller;
+    poller = undefined;
+    await p?.stop();
+  };
+
+  return {
+    shared: true,
+
+    async get(key) {
+      await setup();
+      const [rows] = await pool.query(`SELECT ${v} FROM ${table} WHERE k = ? AND ${LIVE}`, [id(key)]);
+      return parse(rows[0]?.v);
+    },
+
+    async set(key, value, ttl) {
+      await setup();
+      const [e, p] = until(ttl);
+      const text = json(value);
+      await retrying(() =>
+        pool.query(`INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE v = CAST(? AS JSON), e = ${e}`, [
+          id(key),
+          text,
+          ...p,
+          text,
+          ...p,
+        ]),
+      );
+    },
+
+    async delete(key) {
+      await setup();
+      await pool.query(`DELETE FROM ${table} WHERE k = ?`, [id(key)]);
+    },
+
+    async add(key, value, ttl) {
+      await setup();
+      const k = id(key);
+      const [e, p] = until(ttl);
+      // An expired row is absent: remove it, then insert only where nothing is. The INSERT is
+      // what decides; of many at once exactly one gets affectedRows 1.
+      return retrying(async () => {
+        await pool.query(`DELETE FROM ${table} WHERE k = ? AND e <= ${NOW}`, [k]);
+        const [result] = await pool.query(`INSERT IGNORE INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e})`, [k, json(value), ...p]);
+        return result.affectedRows === 1;
+      });
+    },
+
+    async take(key) {
+      await setup();
+      const k = id(key);
+      return transaction(async (conn) => {
+        const [rows] = await conn.query(`SELECT ${v}, ${LIVE} AS live FROM ${table} WHERE k = ? FOR UPDATE`, [k]);
+        if (!rows.length) return undefined;
+        await conn.query(`DELETE FROM ${table} WHERE k = ?`, [k]);
+        return Number(rows[0].live) ? parse(rows[0].v) : undefined;
+      });
+    },
+
+    async increment(key, by = 1, ttl) {
+      await setup();
+      const k = id(key);
+      const step = Number(by);
+      if (!Number.isFinite(step)) throw new TypeError("mysqlStore: increment needs a finite number");
+      const [e, p] = until(ttl);
+      return transaction(async (conn) => {
+        // `v` first, while `e` is still the old one; then `e`
+        await conn.query(
+          `INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE ` +
+            `v = IF(${LIVE}, CAST(IF(JSON_TYPE(v) IN ${NUMBER}, JSON_EXTRACT(v, '$'), 0) + ? AS JSON), CAST(? AS JSON)), ` +
+            `e = IF(${LIVE}, e, ${e})`,
+          [k, json(step), ...p, step, json(step), ...p],
+        );
+        const [rows] = await conn.query(`SELECT ${v} FROM ${table} WHERE k = ?`, [k]);
+        return Number(parse(rows[0].v));
+      });
+    },
+
+    async publish(channel, message) {
+      await setup();
+      await pool.query(`INSERT INTO ${events} (c, m, at) VALUES (?, ?, ${NOW})`, [storedKey(prefix + channel), json(message)]);
+    },
+
+    async subscribe(channel, fn) {
+      const full = storedKey(prefix + channel);
+      let fns = channels.get(full);
+      if (!fns) channels.set(full, (fns = new Set()));
+      const one = (m) => fn(m);
+      fns.add(one);
+      try {
+        await startListening();
+      } catch (err) {
+        fns.delete(one);
+        if (!fns.size) channels.delete(full);
+        throw err;
+      }
+      let off = false;
+      return () => {
+        if (off) return;
+        off = true;
+        fns.delete(one);
+        if (!fns.size && channels.get(full) === fns) channels.delete(full);
+        stopListening().catch(() => {});
+      };
+    },
+
+    /** Deletes what is over now, as the periodic sweep does. */
+    sweep: async () => {
+      await setup();
+      await sweep();
+    },
+
+    /** Stops the sweep and the polling. The pool is yours to end. */
+    async close() {
+      closed = true;
+      clearInterval(sweeper);
+      channels.clear();
+      await stopListening();
+    },
+  };
+}
+
+export default mysqlStore;
