@@ -1,0 +1,54 @@
+{
+  "name": "@inkanjs/postgres",
+  "version": "0.1.0",
+  "description": "A PostgreSQL store for inkan: jobs, sessions, auth, idempotency keys and rate limits in one table, on the pool you already have.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/postgres"
+  },
+  "keywords": [
+    "inkan",
+    "store",
+    "postgres",
+    "postgresql",
+    "pg",
+    "session",
+    "rate-limit",
+    "jobs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "@vxnsin/inkan": "file:../../../inkan-release-0.8",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "pg": "^8.23.1",
+    "postgres": "^3.4.9"
+  },
+  "scripts": {
+    "test": "node --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
