@@ -114,7 +114,7 @@ export function otel(options = {}) {
         .decorateRequest("span", () => trace.wrapSpanContext(INVALID_SPAN_CONTEXT))
         .decorateRequest("traceContext", () => context.active());
     },
-    { name: "otel", shared: true, inkan: ">=0.7.0 <0.8.0" },
+    { name: "otel", shared: true, inkan: ">=0.8.0 <1.0.0" },
   );
 }
 

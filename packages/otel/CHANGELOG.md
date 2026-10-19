@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+
 ## 0.1.0
 
 - `otel()`: a SERVER span per request, named `METHOD /route/:pattern`, with the HTTP
