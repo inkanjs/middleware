@@ -6,6 +6,8 @@
   app's own node-redis (v4+) or ioredis client. No dependencies of its own.
 - `add` is `SET NX`, `take` is `GETDEL` (a Lua script before Redis 6.2), `increment` one
   Lua script that gives only a new key its TTL. Every key and channel under `prefix`.
+- A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
+  RangeError otherwise), as in the other stores.
 - `publish`/`subscribe` on Redis Pub/Sub, with a duplicated connection made at the first
   `subscribe` and closed by `store.close()`.
 - Passes `storeConformance` from `@vxnsin/inkan/testing` on both clients.

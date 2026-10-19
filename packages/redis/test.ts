@@ -150,11 +150,18 @@ if (typeof srv === "string") {
       await sub.close();
     });
 
-    it("refuses undefined and a TTL that is not a number", async () => {
+    it("refuses undefined, and a TTL that is not a finite number of ms up to ten years", async () => {
       const store = redisStore(io, { prefix: fresh() });
       await assert.rejects(store.set("x", undefined), TypeError);
       await assert.rejects(store.set("x", 1, "10" as never), TypeError);
       await assert.rejects(store.increment("x", Infinity), TypeError);
+      for (const ttl of [NaN, Infinity]) await assert.rejects(store.set("x", 1, ttl), TypeError, String(ttl));
+      for (const ttl of [0, -5, 315_576_000_001]) {
+        await assert.rejects(store.set("x", 1, ttl), RangeError, String(ttl));
+        await assert.rejects(store.add("x", 1, ttl), RangeError, String(ttl));
+        await assert.rejects(store.increment("x", 1, ttl), RangeError, String(ttl));
+      }
+      assert.equal(await store.get("x"), undefined, "nothing was written");
     });
   });
 }

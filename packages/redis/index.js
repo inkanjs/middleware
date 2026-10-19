@@ -29,10 +29,13 @@ const json = (value) => {
   if (s === undefined) throw new TypeError("redisStore: undefined is not a value a store keeps");
   return s;
 };
-/** PX takes whole milliseconds, at least 1: rounding up never lets a key go early. */
+/** Ten years in ms: the longest TTL taken. */
+const MAX_TTL = 315_576_000_000;
+/** PX takes whole milliseconds: rounding up never lets a key go early. */
 const px = (ttl) => {
-  if (typeof ttl !== "number" || Number.isNaN(ttl)) throw new TypeError(`redisStore: a TTL is a number of milliseconds, not ${ttl}`);
-  return String(Math.max(1, Math.ceil(ttl)));
+  if (typeof ttl !== "number" || !Number.isFinite(ttl)) throw new TypeError(`redisStore: a TTL is a finite number of milliseconds, not ${String(ttl)}`);
+  if (ttl <= 0 || ttl > MAX_TTL) throw new RangeError(`redisStore: a TTL is more than 0 and at most ten years (${MAX_TTL} ms), not ${ttl}`);
+  return String(Math.ceil(ttl));
 };
 const unknownCommand = (err) => /unknown command|ERR unknown/i.test(String(err?.message ?? err));
 
