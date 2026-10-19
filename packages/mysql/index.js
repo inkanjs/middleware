@@ -171,10 +171,13 @@ export function mysqlStore(pool, options = {}) {
     const read = async (deliver) => {
       const names = [...channels.keys()];
       if (!names.length) return;
-      const [rows] = await pool.execute(`SELECT id, c, m, CAST(at AS CHAR) AS at FROM ${events} WHERE at >= ? AND c IN (${names.map(() => "?").join(", ")}) ORDER BY id`, [
-        sqlTime(cursor - LOOKBACK),
-        ...names,
-      ]);
+      // a row dated past the server's clock is not one of ours (publish dates by that clock):
+      // left out, so it can neither arrive nor move the cursor past the messages to come
+      const [rows] = await pool.execute(
+        `SELECT id, c, m, CAST(at AS CHAR) AS at FROM ${events} ` +
+          `WHERE at >= ? AND at <= ${NOW} + INTERVAL ${LOOKBACK / 1000} SECOND AND c IN (${names.map(() => "?").join(", ")}) ORDER BY id`,
+        [sqlTime(cursor - LOOKBACK), ...names],
+      );
       for (const row of rows) {
         const key = String(row.id);
         if (seen.has(key)) continue;

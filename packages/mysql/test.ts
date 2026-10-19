@@ -189,6 +189,24 @@ if (skip) {
       }
     });
 
+    test("a message dated in the future neither arrives nor holds the later ones back", async () => {
+      const prefix = fresh();
+      const store = mysqlStore(main, { prefix, poll: 20 });
+      const got: unknown[] = [];
+      const off = await store.subscribe("ch", (m) => got.push(m));
+      try {
+        await main.query("INSERT INTO inkan_events (c, m, at) VALUES (?, ?, UTC_TIMESTAMP(3) + INTERVAL 1 HOUR)", [`${prefix}ch`, JSON.stringify("forged")]);
+        await sleep(200);
+        await store.publish("ch", "real");
+        await until(() => got.length > 0, 5000);
+        await sleep(100);
+        assert.deepEqual(got, ["real"]);
+      } finally {
+        off();
+        await store.close();
+      }
+    });
+
     test("a table of its own", async () => {
       const store = mysqlStore(main, { table: "inkan_other", events: "inkan_other_events" });
       const k = randomBytes(4).toString("hex");
