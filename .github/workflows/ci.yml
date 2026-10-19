@@ -30,3 +30,42 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
+
+  # @inkanjs/redis and @inkanjs/postgres against real servers. The test job above runs them
+  # on servers they download (redis-memory-server, embedded-postgres); here REDIS_URL and
+  # DATABASE_URL point them at service containers instead.
+  stores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://localhost:6379
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      REDISMS_DISABLE_POSTINSTALL: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm install --no-audit --no-fund
+      - run: npm test -w packages/redis -w packages/postgres
