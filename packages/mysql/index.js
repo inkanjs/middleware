@@ -249,7 +249,7 @@ export function mysqlStore(pool, options = {}) {
     await p?.stop();
   };
 
-  return {
+  return sanitized({
     shared: true,
 
     async get(key) {
@@ -364,7 +364,35 @@ export function mysqlStore(pool, options = {}) {
       channels.clear();
       await stopListening();
     },
-  };
+  });
 }
+
+/**
+ * The store with every method's errors cleaned: what mysql2 rejects with carries the SQL text
+ * (`sql`, with the values in it for `query`) and messages that quote values ("Duplicate entry
+ * '<key>'"), and an app logs errors. The error thrown instead keeps `code`, `errno`, `sqlState`
+ * and the message with every quoted part replaced by '…'. The store's own errors pass as they are.
+ */
+function sanitized(store) {
+  for (const name of ["get", "set", "delete", "add", "take", "increment", "publish", "subscribe", "sweep"]) {
+    const method = store[name];
+    store[name] = async (...args) => {
+      try {
+        return await method(...args);
+      } catch (err) {
+        throw clean(err);
+      }
+    };
+  }
+  return store;
+}
+
+const clean = (err) => {
+  if (err instanceof Error && err.message.startsWith("mysqlStore:")) return err;
+  const message = String(err?.message ?? err).replace(/'(?:[^'\\]|\\.|'')*'/g, "'…'").replace(/"(?:[^"\\]|\\.)*"/g, '"…"');
+  const out = new Error(`mysqlStore: ${message}`);
+  for (const k of ["code", "errno", "sqlState", "fatal"]) if (err?.[k] !== undefined) out[k] = err[k];
+  return out;
+};
 
 export default mysqlStore;

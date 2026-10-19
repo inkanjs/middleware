@@ -5,6 +5,7 @@
 import { after, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { inspect } from "node:util";
 import mysql from "mysql2/promise";
 import { storeConformance } from "@vxnsin/inkan/testing";
 import { mysqlStore, storedKey, type MysqlStore } from "./index.js";
@@ -274,6 +275,33 @@ if (skip) {
         assert.equal(await store.increment("s", 2), 7, "a number counts on");
       } finally {
         await store.close();
+      }
+    });
+
+    test("a database error carries no key and no value: no SQL, no parameters, none in the message", async () => {
+      const table = `inkan_err_${randomBytes(4).toString("hex")}`;
+      // a column of the user's that reads the value as a number, so a set fails with "Truncated
+      // incorrect INTEGER value: '<value>'"
+      await main.query(
+        `CREATE TABLE ${table} (k VARBINARY(255) NOT NULL PRIMARY KEY, v JSON NOT NULL, e DATETIME(3) NULL, ` +
+          "u BIGINT AS (CAST(JSON_UNQUOTE(v) AS SIGNED)) STORED, KEY inkan_e (e)) ENGINE=InnoDB",
+      );
+      const store = mysqlStore(main, { table, events: `${table}_ev`, prefix: "secret-key-1:", sweep: 0 });
+      try {
+        const err = await store.set("a", "secret-value-1").then(
+          () => assert.fail("the column refuses it"),
+          (e: unknown) => e as Error & Record<string, unknown>,
+        );
+        assert.equal(typeof err.code, "string");
+        assert.equal(typeof err.errno, "number");
+        assert.match(err.message, /incorrect INTEGER value/i);
+        assert.equal(err.sql, undefined);
+        const all = inspect(err, { depth: 10, showHidden: true });
+        assert.ok(!all.includes("secret-value-1"), all);
+        assert.ok(!all.includes("secret-key-1"), all);
+      } finally {
+        await store.close();
+        await main.query(`DROP TABLE IF EXISTS ${table}, ${table}_ev`);
       }
     });
 

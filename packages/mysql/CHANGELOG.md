@@ -23,3 +23,6 @@
 - Table names checked against `/^[A-Za-z_][A-Za-z0-9_]*$/`; every value a parameter of a
   server-side prepared statement (`execute`), so `NO_BACKSLASH_ESCAPES` and multibyte client
   charsets (gbk, big5, sjis) cannot turn a key into SQL. The pool needs `execute`.
+- Errors from the database come without keys and values: a new `Error` with `code`, `errno`
+  and `sqlState`, its message with every quoted part replaced by `'…'`; mysql2's `sql` (the
+  statement, with the values in it for `query`) is not passed on.
