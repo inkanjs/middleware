@@ -216,6 +216,26 @@ if (skip) {
       await store.close();
     });
 
+    test("refuses a step or a TTL that is not a sane number; ten years still expire", async () => {
+      const prefix = fresh();
+      const store = mysqlStore(main, { prefix });
+      try {
+        for (const by of [NaN, Infinity, -Infinity, "1"]) await assert.rejects(store.increment("n", by as never), TypeError, String(by));
+        for (const ttl of [NaN, Infinity, "10"]) {
+          await assert.rejects(store.set("t", 1, ttl as never), TypeError, String(ttl));
+          await assert.rejects(store.add("t", 1, ttl as never), TypeError, String(ttl));
+          await assert.rejects(store.increment("t", 1, ttl as never), TypeError, String(ttl));
+        }
+        for (const ttl of [0, -5, 315_576_000_001, 1e15]) await assert.rejects(store.set("t", 1, ttl), RangeError, String(ttl));
+        assert.equal(await store.get("t"), undefined, "nothing was written");
+        await store.set("t", 1, 315_576_000_000);
+        const [[row]] = await main.query<mysql.RowDataPacket[]>("SELECT e IS NOT NULL AS has FROM inkan_store WHERE k = ?", [`${prefix}t`]);
+        assert.equal(Number(row!.has), 1, "ten years is a TTL, not none");
+      } finally {
+        await store.close();
+      }
+    });
+
     test("a single connection is refused: transactions need a pool", async () => {
       assert.throws(() => mysqlStore({ query: async () => [[], []] } as never), TypeError);
     });

@@ -38,9 +38,16 @@ export function storedKey(key) {
   return `\x01sha256:${createHash("sha256").update(key, "utf8").digest("hex")}`;
 }
 
+/** Ten years in ms: the longest TTL taken, far from DATETIME's end (an overflow there is NULL: no TTL). */
+const MAX_TTL = 315_576_000_000;
+
 /** The end of a TTL as SQL and its parameters: NULL for none. */
-const until = (ttl) =>
-  ttl === undefined || ttl === null ? ["NULL", []] : [`${NOW} + INTERVAL ? MICROSECOND`, [Math.max(0, Math.ceil(Number(ttl))) * 1000]];
+const until = (ttl) => {
+  if (ttl === undefined || ttl === null) return ["NULL", []];
+  if (typeof ttl !== "number" || !Number.isFinite(ttl)) throw new TypeError(`mysqlStore: a TTL is a finite number of milliseconds, not ${String(ttl)}`);
+  if (ttl <= 0 || ttl > MAX_TTL) throw new RangeError(`mysqlStore: a TTL is more than 0 and at most ten years (${MAX_TTL} ms), not ${ttl}`);
+  return [`${NOW} + INTERVAL ? MICROSECOND`, [Math.ceil(ttl) * 1000]];
+};
 
 const json = (value) => JSON.stringify(value === undefined ? null : value);
 const parse = (text) => (text === null || text === undefined ? undefined : JSON.parse(Buffer.isBuffer(text) ? text.toString("utf8") : text));
@@ -285,8 +292,8 @@ export function mysqlStore(pool, options = {}) {
     async increment(key, by = 1, ttl) {
       await setup();
       const k = id(key);
-      const step = Number(by);
-      if (!Number.isFinite(step)) throw new TypeError("mysqlStore: increment needs a finite number");
+      const step = by;
+      if (typeof step !== "number" || !Number.isFinite(step)) throw new TypeError(`mysqlStore: increment takes a finite number, not ${String(by)}`);
       const [e, p] = until(ttl);
       return transaction(async (conn) => {
         // `v` first, while `e` is still the old one; then `e`

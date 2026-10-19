@@ -7,6 +7,9 @@
 - Binary keys (exact bytes), JSON values, TTLs on the database's UTC clock; keys over 255
   bytes kept under their SHA-256.
 - `add`, `take` and `increment` atomic across processes; deadlocks retried.
+- A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
+  RangeError otherwise), so no TTL overflows `DATETIME` into a NULL (no expiry); `increment`
+  takes only a finite number as its step.
 - publish/subscribe by polling a messages table every `poll` ms; a periodic, unref'd sweep
   of expired keys and old messages, once at startup and then every `sweep` ms, in batches of
   10000 rows until none are left (at most a million a sweep), so the table cannot outgrow it.
