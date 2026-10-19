@@ -83,8 +83,10 @@ CREATE TABLE inkan_events (
 - **Long keys.** A key (with its prefix) longer than 255 bytes of UTF-8 is kept under
   `\x01sha256:<hex>` of it. Two different keys share a row only if SHA-256 collides. Keys
   starting with `\x01` are hashed too, so no key can pose as a hash.
-- **Expired rows stay until the sweep** (every `sweep` ms, unref'd, 10000 rows at a time).
-  Nothing returns them in the meantime: every read filters on `e > UTC_TIMESTAMP(3)`.
+- **Expired rows stay until the sweep** (once when the store starts, then every `sweep` ms,
+  unref'd). A sweep deletes 10000 rows a statement until a statement comes back short, at
+  most a million rows a sweep; the next one goes on. Nothing returns expired rows in the
+  meantime: every read filters on `e > UTC_TIMESTAMP(3)`.
 - **Messages are polled.** MySQL has no notifications, so subscribers read the `events`
   table every `poll` ms: a message arrives **up to about a second** later, one query a
   second per store that has subscribers. Messages are kept a minute. One whose insert

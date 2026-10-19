@@ -101,6 +101,30 @@ if (skip) {
       await store.close();
     });
 
+    test("the sweep deletes in batches until nothing expired is left", async () => {
+      const table = `inkan_sw_${randomBytes(4).toString("hex")}`;
+      const store = mysqlStore(main, { table, events: `${table}_ev`, sweep: 0 });
+      try {
+        await store.set("live", 1, 600_000);
+        const conn = await main.getConnection();
+        try {
+          await conn.query("SET SESSION cte_max_recursion_depth = 30000");
+          await conn.query(
+            `INSERT INTO ${table} (k, v, e) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 25000) ` +
+              "SELECT CONCAT('old:', i), CAST('1' AS JSON), UTC_TIMESTAMP(3) - INTERVAL 1 SECOND FROM n",
+          );
+        } finally {
+          conn.release();
+        }
+        await store.sweep();
+        const [[left]] = await main.query<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS n FROM ${table}`);
+        assert.equal(Number(left!.n), 1, "25000 expired rows gone in one sweep, the live one kept");
+      } finally {
+        await store.close();
+        await main.query(`DROP TABLE IF EXISTS ${table}, ${table}_ev`);
+      }
+    });
+
     test("keys are exact bytes: case, trailing spaces, accents", async () => {
       const store = mysqlStore(main, { prefix: fresh() });
       const names = ["a", "A", "a ", "a  ", "ä", "ä", "ß", "ss"];

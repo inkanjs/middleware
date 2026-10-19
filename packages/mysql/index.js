@@ -20,6 +20,8 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RETRY = new Set([1213, 1205]); // deadlock, lock wait timeout
 const LOOKBACK = 5000; // ms a message may commit after a newer one and still arrive
 const KEEP_EVENTS = 60; // s a message stays in the table
+const SWEEP_BATCH = 10_000; // rows one DELETE of the sweep takes, so no lock is held long
+const SWEEP_BATCHES = 100; // DELETEs one sweep runs at most (a million rows); the next goes on
 const NOW = "UTC_TIMESTAMP(3)";
 const LIVE = `(e IS NULL OR e > ${NOW})`;
 const NUMBER = "('INTEGER','UNSIGNED INTEGER','DOUBLE','DECIMAL')";
@@ -76,7 +78,9 @@ export function mysqlStore(pool, options = {}) {
         );
       }
       if (sweepEvery > 0 && !closed) {
-        sweeper = setInterval(() => sweep().catch(() => {}), sweepEvery);
+        // once now, so a process that never lives a whole `sweep` still deletes; then on a timer
+        background();
+        sweeper = setInterval(background, sweepEvery);
         sweeper.unref?.();
       }
     })().catch((err) => {
@@ -86,9 +90,25 @@ export function mysqlStore(pool, options = {}) {
   let sweeper;
   let closed = false;
 
+  /** Deletes in batches of SWEEP_BATCH until one comes back short, at most SWEEP_BATCHES of them. */
+  const drain = async (sql) => {
+    for (let i = 0; i < SWEEP_BATCHES && !closed; i++) {
+      const [result] = await pool.query(sql);
+      if (result.affectedRows < SWEEP_BATCH) return;
+    }
+  };
   const sweep = async () => {
-    await pool.query(`DELETE FROM ${table} WHERE e <= ${NOW} LIMIT 10000`);
-    await pool.query(`DELETE FROM ${events} WHERE at < ${NOW} - INTERVAL ${KEEP_EVENTS} SECOND LIMIT 10000`);
+    await drain(`DELETE FROM ${table} WHERE e <= ${NOW} LIMIT ${SWEEP_BATCH}`);
+    await drain(`DELETE FROM ${events} WHERE at < ${NOW} - INTERVAL ${KEEP_EVENTS} SECOND LIMIT ${SWEEP_BATCH}`);
+  };
+  let sweeping;
+  /** The timer's sweep: one at a time, errors left for the next one. */
+  const background = () => {
+    sweeping ??= sweep()
+      .catch(() => {})
+      .finally(() => {
+        sweeping = undefined;
+      });
   };
 
   /** Runs `fn` in a transaction on a connection of its own, again after a deadlock. */
