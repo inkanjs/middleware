@@ -10,6 +10,8 @@
 - A TTL must be a finite number of ms, more than 0 and at most ten years (TypeError or
   RangeError otherwise), so no TTL overflows `DATETIME` into a NULL (no expiry); `increment`
   takes only a finite number as its step.
+- `increment` on a live key whose value is not a JSON number rejects with a `TypeError` and
+  leaves the value alone (it counted such a value as 0).
 - publish/subscribe by polling a messages table every `poll` ms; a periodic, unref'd sweep
   of expired keys and old messages, once at startup and then every `sweep` ms, in batches of
   10000 rows until none are left (at most a million a sweep), so the table cannot outgrow it.

@@ -299,11 +299,13 @@ export function mysqlStore(pool, options = {}) {
         // `v` first, while `e` is still the old one; then `e`
         await conn.execute(
           `INSERT INTO ${table} (k, v, e) VALUES (?, CAST(? AS JSON), ${e}) ON DUPLICATE KEY UPDATE ` +
-            `v = IF(${LIVE}, CAST(IF(JSON_TYPE(v) IN ${NUMBER}, JSON_EXTRACT(v, '$'), 0) + ? AS JSON), CAST(? AS JSON)), ` +
+            // a live value that is not a number stays as it is, and is refused below
+            `v = IF(${LIVE}, IF(JSON_TYPE(v) IN ${NUMBER}, CAST(JSON_EXTRACT(v, '$') + ? AS JSON), v), CAST(? AS JSON)), ` +
             `e = IF(${LIVE}, e, ${e})`,
           [k, json(step), ...p, step, json(step), ...p],
         );
-        const [rows] = await conn.execute(`SELECT ${v} FROM ${table} WHERE k = ?`, [k]);
+        const [rows] = await conn.execute(`SELECT ${v}, JSON_TYPE(v) IN ${NUMBER} AS num FROM ${table} WHERE k = ?`, [k]);
+        if (!Number(rows[0].num)) throw new TypeError("mysqlStore: increment on a key whose value is not a number");
         return Number(parse(rows[0].v));
       });
     },
