@@ -65,7 +65,7 @@ secureHeaders({
 | --- | --- | --- |
 | `csp` | `{}` | `false` for none; `directives` over the defaults (`false` drops one, `true` for one without sources), `useDefaults`, `reportOnly` |
 | `hsts` | `{}` | `false` for none; `maxAge`, `includeSubDomains` (true), `preload` (false), `force` (false) |
-| `https` | the socket is a TLS socket | `(ctx) => boolean`: whether the request came over HTTPS |
+| `https` | `ctx.secure` | `(ctx) => boolean`: whether the request came over HTTPS |
 | `skip` | none | `(ctx) => boolean`: answers to leave alone |
 | `extra` | none | more headers, by name |
 | each header above | | a string, or `false` |
@@ -76,9 +76,9 @@ secureHeaders({
   read. An answer whose handler (or template) read it gets `'nonce-…'` in `script-src` and
   `style-src`; every other answer gets the plain policy. With only `default-src` in the
   policy, `script-src` and `style-src` are written out from it to take the nonce.
-- **HSTS** goes out only over HTTPS: the socket is a TLS socket, or `https(ctx)` says so.
-  Behind a proxy that ends TLS, pass `https: (ctx) => ctx.headers["x-forwarded-proto"] === "https"`
-  (only when the proxy sets that header itself) or `hsts: { force: true }`.
+- **HSTS** goes out only over HTTPS: `ctx.secure` is true, or `https(ctx)` says so.
+  Behind a proxy that ends TLS, give the app `trustProxy` (then `ctx.secure` follows the
+  proxy's `x-forwarded-proto`), or pass `hsts: { force: true }`.
 - **Your headers win.** A header the handler or a hook before this one set stays as it is,
   so one route can send its own policy.
 - **inkan's own pages keep working.** `/docs`, `/openapi.json` and the inspector are answered

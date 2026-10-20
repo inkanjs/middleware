@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+- HSTS goes by `ctx.secure` by default instead of the socket's `encrypted` flag, so it is sent
+  behind a proxy the app trusts (`trustProxy` and `x-forwarded-proto: https`) as well, and no
+  longer reaches into `ctx.req`.
+
 ## 0.1.0
 
 - `secureHeaders()`: content-security-policy, strict-transport-security over HTTPS,

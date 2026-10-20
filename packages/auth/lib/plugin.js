@@ -7,14 +7,14 @@
 // for a scheme this plugin cannot verify is refused, never waved through.
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
-import { HttpProblem, plugin, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, memoryStore, plugin, problem, reply, t } from "@vxnsin/inkan";
 import { AuthError } from "./errors.js";
 import { isObject, secureUrl } from "./http.js";
 import { jwksSource, signJwt, verifyJwt } from "./jwt.js";
 import { deriveKeys, readSessionId, seal, signSessionId, unseal } from "./keys.js";
 import { buildAuthorizeUrl, exchangeCode, github, google, pkcePair, randomState } from "./oauth.js";
 import { hashPassword, needsRehash, verifyPassword } from "./password.js";
-import { keyLock, memoryStore } from "./store.js";
+import { keyLock } from "./store.js";
 import { hashToken, randomToken, safeEqual } from "./tokens.js";
 import { base32Encode, generateTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
 
@@ -55,12 +55,13 @@ function seconds(value, what) {
   return Number(m[1]) * { s: 1, m: 60, h: 3600, d: 86400 }[m[2]];
 }
 
+const STORE_METHODS = ["get", "set", "delete", "add", "take", "increment"];
+
+/** An inkan `Store` (TTLs in ms; add, take and increment atomic), or a TypeError that says what is missing. */
 function checkStore(store, what) {
-  if (!isObject(store) || !fn(store.get) || !fn(store.set) || !fn(store.delete)) {
-    throw new TypeError(`auth: ${what} must have get(key), set(key, value, ttlSeconds) and delete(key)`);
-  }
-  if ((store.take !== undefined && !fn(store.take)) || (store.add !== undefined && !fn(store.add))) {
-    throw new TypeError(`auth: ${what}: take(key) and add(key, value, ttlSeconds) are functions when given`);
+  const missing = isObject(store) ? STORE_METHODS.filter((m) => !fn(store[m])) : STORE_METHODS;
+  if (missing.length) {
+    throw new TypeError(`auth: ${what} must be an inkan Store (get, set, delete, add, take, increment; TTLs in ms), missing: ${missing.join(", ")}`);
   }
   return store;
 }
@@ -72,7 +73,7 @@ function configure(o) {
   const keys = o.secret === undefined ? undefined : deriveKeys(o.secret);
   const users = o.users ?? {};
   if (!isObject(users)) throw new TypeError("auth: users must be an object with find and byId");
-  const store = checkStore(o.store ?? memoryStore({ clock }), "store");
+  const store = checkStore(o.store ?? memoryStore({ clock, max: 100_000 }), "store");
   const c = {
     clock,
     keys,
@@ -254,6 +255,9 @@ function configure(o) {
     for (const k of ["freeAttempts", "loginFreeAttempts", "ipFreeAttempts", "maxDelay", "window"]) {
       if (!Number.isInteger(b[k]) || b[k] < 1) throw new TypeError(`auth: bruteForce.${k} must be a positive integer`);
     }
+    // the escalation is forgotten `window` after a lock ends: shorter than a lock, it would be
+    // forgotten while the lock still holds
+    if (b.window < b.maxDelay) throw new TypeError("auth: bruteForce.window must be at least bruteForce.maxDelay");
     // counters live apart from sessions and refresh tokens: a flood of made-up logins fills
     // (and evicts within) this store only
     b.store = checkStore(b.store ?? memoryStore({ clock, max: 50_000 }), "bruteForce.store");
@@ -276,7 +280,7 @@ function slots(max, waitMs) {
   let active = 0;
   /** @type {{ go: () => void, timer: NodeJS.Timeout }[]} */
   const queue = [];
-  const busy = () => new HttpProblem(503, "busy", "Too many logins at once; try again in a moment", {}, { "retry-after": "1" });
+  const busy = () => problem(503, "busy", { detail: "Too many logins at once; try again in a moment", headers: { "retry-after": "1" } });
   return async function run(work) {
     if (active < max) active++;
     else {
@@ -332,7 +336,7 @@ const forbidden = (detail) => new HttpProblem(403, "forbidden", detail);
  */
 export function auth(options) {
   const c = configure(options);
-  const p = plugin((app) => install(app, c), { name: "auth", shared: true, inkan: ">=0.7.0 <0.8.0" });
+  const p = plugin((app) => install(app, c), { name: "auth", shared: true, inkan: ">=0.8.0 <1.0.0" });
   Object.defineProperty(p, "session", { value: c.sessionScheme, enumerable: true });
   return p;
 }
@@ -340,26 +344,12 @@ export function auth(options) {
 function install(app, c) {
   const { clock, keys, users, store, session } = c;
   const lock = keyLock();
-  /** Reads and removes in one step: the store's own take, or a read and a delete under the process lock. */
-  const take = (s, key) =>
-    fn(s.take)
-      ? s.take(key)
-      : lock("take:" + key, async () => {
-          const v = await s.get(key);
-          if (v !== undefined) await s.delete(key);
-          return v;
-        });
-  /** Writes only when the key is free, true when it did: the store's own add, or a read and a write under the process lock. */
-  const add = async (s, key, value, ttl) =>
-    fn(s.add)
-      ? (await s.add(key, value, ttl)) === true
-      : lock("add:" + key, async () => {
-          const v = await s.get(key);
-          if (v !== undefined && v !== null) return false;
-          await s.set(key, value, ttl);
-          return true;
-        });
-  const ttlUntil = (ms) => Math.max(1, Math.ceil((ms - clock()) / 1000));
+  /** Writes only when the key is free, true when it did: one atomic step of the store. */
+  const add = async (s, key, value, ttl) => (await s.add(key, value, ttl)) === true;
+  /** Reads and removes in one step: one atomic step of the store. */
+  const take = (s, key) => s.take(key);
+  /** The TTL in ms of a record that ends at `ms`. */
+  const ttlUntil = (ms) => Math.max(1, Math.ceil(ms - clock()));
   /** @type {WeakMap<object, { user: unknown, method: string | undefined, sid: string | undefined, cookie: boolean, authTime: number | undefined }>} */
   const states = new WeakMap();
   const stateOf = (ctx) => {
@@ -394,7 +384,7 @@ function install(app, c) {
     if (old) await session.store.delete(sessionKey(old));
     const id = randomToken(32);
     const now = clock();
-    await session.store.set(sessionKey(id), { u: user.id, iat: now, exp: now + session.maxAge * 1000 }, session.maxAge);
+    await session.store.set(sessionKey(id), { u: user.id, iat: now, exp: now + session.maxAge * 1000 }, session.maxAge * 1000);
     ctx.setCookie(session.cookie, signSessionId(keys, id), {
       maxAge: session.maxAge,
       path: "/",
@@ -588,7 +578,7 @@ function install(app, c) {
       }
       if (failure && (schemes.length > 0 || needsUser) && !lenient) {
         const code = publicCode(failure.err);
-        throw new HttpProblem(401, code, DETAIL[code], {}, challenges(schemes.length ? schemes : [failure.s], c, code));
+        throw problem(401, code, { detail: DETAIL[code], headers: challenges(schemes.length ? schemes : [failure.s], c, code) });
       }
       // missing credentials on a route with security: the core answers 401 right after the onRequest hooks
       if (needsUser && !schemes.length) throw new HttpProblem(401, "unauthorized", "Log in first");
@@ -603,7 +593,7 @@ function install(app, c) {
 
   // Awaited before the handler, so hooks after the input check and the handler see the user
   // itself; a route outside needsAuth never touches the store.
-  app.decorateRequest("user", authenticate, { before: "handler", when: needsAuth });
+  app.decorateRequest("user", authenticate, { resolve: "preHandler", when: needsAuth });
   app.decorateRequest("auth", (ctx) => {
     const st = stateOf(ctx);
     return Object.freeze({
@@ -648,7 +638,7 @@ function install(app, c) {
   // ---- OpenAPI ----
 
   const sessionSchemeName = session ? `${session.cookie}-cookie`.replace(/[^\w.-]/g, "_") : undefined;
-  app.describe((op, route, components) => {
+  app.onOperation((op, route, components) => {
     const schemes = components.securitySchemes ?? {};
     if (c.jwt && schemes.bearer) {
       schemes.bearer.bearerFormat ??= "JWT";
@@ -679,9 +669,21 @@ function install(app, c) {
   // from everywhere. The login from one address locks fast (freeAttempts); the login as such
   // only after many more failures (loginFreeAttempts), which takes many addresses, so a
   // stranger who knows a login cannot lock its owner out from one machine. Each attempt is
-  // counted before the password is checked, so a burst of parallel guesses cannot all slip
-  // through; a success gives the address its attempt back and clears the login's counters.
+  // counted (an atomic increment) before the password is checked, and a counter over its
+  // free attempts claims its lock with an atomic add: of a burst of parallel guesses only the
+  // one that claims the lock goes on, in every process.
+  //
+  // Escalation: next to each counter `key:s` holds its level, the number of locks claimed.
+  // The count itself is a fixed window (it starts over `window` after its first attempt), but
+  // once a counter has a level, every attempt after a lock claims the next one, twice as long
+  // (1s, 2s, 4s, … up to maxDelay), whatever the count. The level is kept `window` past the
+  // end of the last lock: a guesser who keeps going, however slowly, stays at one attempt per
+  // maxDelay; only `window` of quiet after a lock forgets it. A success clears the login's
+  // counters and levels, never the address's: else a guesser would log into an account of
+  // their own between guesses.
   const bf = c.bruteForce;
+  const lockOf = (key) => key + ":lock";
+  const levelOf = (key) => key + ":s";
   const guard = bf && {
     keysFor(login, ip) {
       const l = hashToken(login.trim().toLowerCase());
@@ -693,45 +695,54 @@ function install(app, c) {
       const now = clock();
       let until = 0;
       for (const [key, free] of keyList) {
-        if (until) break;
-        await lock(key, async () => {
-          const rec = (await bf.store.get(key)) ?? { n: 0, until: 0 };
-          if (rec.until > now) return void (until = rec.until);
-          rec.n += 1;
-          const over = rec.n - free;
-          const delay = over > 0 ? Math.min(2 ** (over - 1), bf.maxDelay) : 0;
-          rec.until = delay ? now + delay * 1000 : 0;
-          await bf.store.set(key, rec, bf.window + delay);
-        });
+        const locked = await bf.store.get(lockOf(key));
+        if (typeof locked === "number" && locked > now) {
+          until = locked;
+          break;
+        }
+        const s = await bf.store.get(levelOf(key));
+        const level = typeof s === "number" && s > 0 ? Math.min(s, 64) : 0;
+        const n = await bf.store.increment(key, 1, bf.window * 1000);
+        if (level === 0 && n <= free) continue;
+        const delay = Math.min(2 ** level, bf.maxDelay) * 1000;
+        // the attempt that claims the lock goes on; one that finds it claimed is turned away
+        if (!(await bf.store.add(lockOf(key), now + delay, delay))) {
+          const held = await bf.store.get(lockOf(key));
+          until = typeof held === "number" && held > now ? held : now + delay;
+          break;
+        }
+        await bf.store.set(levelOf(key), level + 1, delay + bf.window * 1000);
       }
       if (until) {
         const wait = Math.max(1, Math.ceil((until - now) / 1000));
-        throw new HttpProblem(429, "too-many-attempts", `Too many failed logins; try again in ${wait}s`, {}, { "retry-after": String(wait) });
+        throw problem(429, "too-many-attempts", { detail: `Too many failed logins; try again in ${wait}s`, headers: { "retry-after": String(wait) } });
       }
     },
-    /** A success: the address gets its attempt back, the login's counters go. */
+    /** A success: the login's counters go, the address's stay (its attempt counted as one). */
     async succeeded(keys) {
-      const [ipKey, free] = keys.ip;
-      await lock(ipKey, async () => {
-        const rec = await bf.store.get(ipKey);
-        if (!isObject(rec) || typeof rec.n !== "number") return;
-        rec.n = Math.max(0, rec.n - 1);
-        if (rec.n <= free) rec.until = 0;
-        await bf.store.set(ipKey, rec, bf.window);
-      });
-      await bf.store.delete(keys.loginIp[0]);
-      await bf.store.delete(keys.login[0]);
+      await guard.clear(keys.loginIp[0]);
+      await guard.clear(keys.login[0]);
+    },
+    /** Forgets a counter, its lock and its level. */
+    async clear(key) {
+      await bf.store.delete(key);
+      await bf.store.delete(lockOf(key));
+      await bf.store.delete(levelOf(key));
     },
   };
 
-  /** Uses a TOTP code once: the matched step is kept, so the same code never works twice. */
+  /**
+   * Uses a TOTP code once: its step is claimed with an atomic add, so the same code never
+   * works twice, in any process; the last step is kept too, so an older code is refused.
+   */
   async function useTotpCode(user, secret, code) {
     const key = "t:" + hashToken(String(user.id));
     return lock(key, async () => {
       const last = await store.get(key);
       const step = verifyTotp(code, secret, { now: clock(), window: c.totp?.window ?? 1, lastUsedStep: typeof last === "number" ? last : null });
       if (step === null) return null;
-      await store.set(key, step, 600);
+      if (!(await add(store, key + ":" + step, true, 600_000))) return null;
+      if (!(typeof last === "number" && last >= step)) await store.set(key, step, 600_000);
       return step;
     });
   }
@@ -751,7 +762,7 @@ function install(app, c) {
     const list = Array.isArray(user.recoveryCodes) ? user.recoveryCodes.filter((h) => typeof h === "string") : [];
     const h = recoveryHash(norm);
     if (!list.some((x) => safeEqual(x, h))) return false;
-    if (!(await add(store, "rc:" + hashToken(`${user.id}\n${h}`), true, 86400))) return false;
+    if (!(await add(store, "rc:" + hashToken(`${user.id}\n${h}`), true, 86_400_000))) return false;
     await users.setRecoveryCodes(user.id, list.filter((x) => x !== h));
     return true;
   }
@@ -777,7 +788,7 @@ function install(app, c) {
       if (guard) await guard.attempt([key]);
       const ok = stored !== undefined && (await hashSlot(() => verifyPassword(password, stored)));
       if (!ok) throw new HttpProblem(403, "reauth-failed", "The password is wrong");
-      if (guard) await bf.store.delete(key[0]);
+      if (guard) await guard.clear(key[0]);
       return;
     }
     if (strict && stored) throw new HttpProblem(403, "reauth-required", "Confirm this with your password");
@@ -817,7 +828,7 @@ function install(app, c) {
     const now = clock();
     if (!family) {
       family = { id: randomToken(16), at: now, exp: now + c.issue.refreshMaxAge * 1000 };
-      const made = await add(store, "f:" + family.id, { u: user.id, revoked: false, at: family.at, exp: family.exp }, c.issue.refreshMaxAge);
+      const made = await add(store, "f:" + family.id, { u: user.id, revoked: false, at: family.at, exp: family.exp }, c.issue.refreshMaxAge * 1000);
       if (!made) throw new Error("auth: a new refresh token family found its id taken");
     }
     const [key] = keys;
@@ -1003,7 +1014,7 @@ function install(app, c) {
           await reauthenticate(ctx, user, ctx.body?.password, false);
           const secret = generateTotpSecret();
           // sealed: a leaked store gives nobody the secret of an authenticator about to be trusted
-          await store.set(pendingKey(user), seal(keys, { s: secret, u: user.id }, "totp-pending"), 600);
+          await store.set(pendingKey(user), seal(keys, { s: secret, u: user.id }, "totp-pending"), 600_000);
           const account = String(c.totp.account(user)).replace(/:/g, "") || String(user.id);
           return { secret, otpauthUrl: otpauthUrl({ secret, account, issuer: c.totp.issuer || undefined }) };
         },

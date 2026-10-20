@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0
+
+- **Any inkan `Store`** (inkan 0.8) for `store`: `memoryStore()` from @vxnsin/inkan, or an
+  adapter such as @inkanjs/redis. The plugin's own `memoryStore` is gone; `memoryStore` and
+  `IdempotencyStore` are re-exported from the core, deprecated.
+- `add` is required, so two processes never both run a key; a store without it is refused
+  when the plugin is made. A key the store does not have is `undefined`; anything else under
+  it (`null` too) is somebody's, never a free key. TTLs stay milliseconds.
+- Needs inkan `>=0.8.0 <1.0.0`.
+- On the inkan 0.8.0 names, so the plugin prints no deprecation warning: `onOperation`, and
+  `problem(status, type, { detail, headers })` for the 409 with `retry-after`. What a request
+  carries from hook to hook is kept in `stateKey` slots instead of side tables.
+
 ## 0.1.0
 
 - `idempotency()`: the same Idempotency-Key replays the first answer

@@ -1,4 +1,4 @@
-import type { Context, Plugin, ProblemBody, Schema, Security } from "@vxnsin/inkan";
+import type { Context, memoryStore as coreMemoryStore, Plugin, ProblemBody, Schema, Security, Store as CoreStore } from "@vxnsin/inkan";
 import type { AsymmetricKey, Duration, JwksOptions, JwtAlgorithm, JwtPayload, Secret } from "./lib/jwt.js";
 import type { OAuthTokens, OAuthUser, Provider } from "./lib/oauth.js";
 import type { ScryptParams } from "./lib/password.js";
@@ -54,26 +54,12 @@ export interface UserSource<U> {
   updatePasswordHash?(id: any, hash: string): Awaitable<unknown>;
 }
 
-/**
- * Any key-value store with a time to live (Redis, a database table, …). A store shared by
- * several processes should have `take` and `add`, each one atomic step of the store (Redis
- * GETDEL and SET … NX EX); without them both are a read and a write, atomic in one process only.
- */
-export interface AuthStore {
-  get(key: string): Awaitable<unknown>;
-  set(key: string, value: unknown, ttlSeconds: number): Awaitable<unknown>;
-  delete(key: string): Awaitable<unknown>;
-  /** Reads and removes in one step: the value, or undefined when there was none. */
-  take?(key: string): Awaitable<unknown>;
-  /** Writes only when the key is free, and says whether it did. */
-  add?(key: string, value: unknown, ttlSeconds: number): Awaitable<boolean>;
-}
-
-export function memoryStore(options?: { max?: number; clock?: () => number }): Required<AuthStore> & {
-  take(key: string): unknown;
-  add(key: string, value: unknown, ttlSeconds: number): boolean;
-  readonly size: number;
-};
+/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+export type Store = CoreStore;
+/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+export type AuthStore = CoreStore;
+/** @deprecated Use `memoryStore` from "@vxnsin/inkan": this is the same function, re-exported. */
+export declare const memoryStore: typeof coreMemoryStore;
 
 export interface SessionOptions {
   /** Default "sid". */
@@ -86,7 +72,7 @@ export interface SessionOptions {
   sameSite?: "Lax" | "Strict" | "None";
   domain?: string;
   /** Sessions only; default: the plugin's `store`. */
-  store?: AuthStore;
+  store?: CoreStore;
 }
 
 export type JwtIssueOptions = {
@@ -146,8 +132,11 @@ export interface AuthOptions<U extends AuthUser> {
   /** At least 32 bytes. Signs session cookies, seals OAuth cookies, signs own JWTs. A list rotates: the first signs, all verify. */
   secret?: string | Uint8Array | readonly (string | Uint8Array)[];
   users?: UserSource<U>;
-  /** Sessions, refresh tokens, login counters, TOTP steps. Default: memoryStore(), per process. */
-  store?: AuthStore;
+  /**
+   * Sessions, refresh tokens and TOTP steps: any inkan `Store` (Redis, a database, …), whose
+   * `add` and `take` are atomic across processes. Default: `memoryStore()`, per process.
+   */
+  store?: CoreStore;
   /** Cookie sessions; on by default. */
   session?: SessionOptions | false;
   jwt?: JwtOptions<U>;
@@ -179,11 +168,15 @@ export interface AuthOptions<U extends AuthUser> {
   /**
    * Failed logins before an exponential lockout: `freeAttempts` (5) per login from one address,
    * `loginFreeAttempts` (100) per login from everywhere, `ipFreeAttempts` (50) per address (an
-   * IPv6 address by its /64). Counted in `store`, by default a memoryStore of its own. false turns it off.
+   * IPv6 address by its /64). Counted with `increment` in `store`, a `Store` of its own, by default a
+   * memoryStore; `window` (900) and `maxDelay` (900) are seconds. A count starts over `window` after
+   * its first attempt; the lockout escalates (1s, 2s, … maxDelay) and is forgotten only after
+   * `window` of quiet past the last lock. `window` must be at least `maxDelay`. A success clears the
+   * login's counters, never the address's. false turns it off.
    */
   bruteForce?:
     | false
-    | { freeAttempts?: number; loginFreeAttempts?: number; ipFreeAttempts?: number; maxDelay?: number; window?: number; store?: AuthStore };
+    | { freeAttempts?: number; loginFreeAttempts?: number; ipFreeAttempts?: number; maxDelay?: number; window?: number; store?: CoreStore };
   /** Milliseconds now; for tests. */
   clock?: () => number;
 }

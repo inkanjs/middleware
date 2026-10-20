@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import {
+  context,
   propagation,
+  ROOT_CONTEXT,
   trace,
   SpanKind,
   SpanStatusCode,
@@ -13,6 +16,7 @@ import {
   type Attributes,
   type AttributeValue,
   type Context,
+  type ContextManager,
   type Exception,
   type Span,
   type SpanContext,
@@ -154,6 +158,7 @@ test("a SERVER span per request, named by the route's pattern, with the HTTP sem
     "user_agent.original": "curl/8",
     "server.address": "api.example.com",
     "server.port": 8443,
+    "network.protocol.version": "1.1",
     "tea.id": "7",
     "http.response.status_code": 200,
   });
@@ -285,4 +290,50 @@ test("only the scope it is registered in", async () => {
     tracer.spans.map((x) => x.name),
     ["GET /in"],
   );
+});
+
+/** What an SDK sets up: the active context follows the async work, on AsyncLocalStorage. */
+class StorageContextManager implements ContextManager {
+  private readonly storage = new AsyncLocalStorage<Context>();
+  active() {
+    return this.storage.getStore() ?? ROOT_CONTEXT;
+  }
+  with<A extends unknown[], F extends (...args: A) => ReturnType<F>>(ctx: Context, fn: F, thisArg?: ThisParameterType<F>, ...args: A): ReturnType<F> {
+    return this.storage.run(ctx, () => fn.call(thisArg, ...args));
+  }
+  bind<T>(_ctx: Context, target: T): T {
+    return target;
+  }
+  enable() {
+    return this;
+  }
+  disable() {
+    this.storage.disable();
+    return this;
+  }
+}
+
+test("the span is the active one while the handler runs, across awaits, and only for traced requests", async () => {
+  const manager = new StorageContextManager();
+  context.setGlobalContextManager(manager);
+  try {
+    const tracer = new MemoryTracer();
+    const app = inkan(quiet)
+      .register((scope) => {
+        scope
+          .register(otel({ tracer, ignore: (ctx) => ctx.path === "/in/health" }))
+          .get("/in/tea", async (ctx) => {
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            return { active: trace.getActiveSpan() === ctx.span, stored: trace.getSpan(ctx.traceContext) === ctx.span };
+          })
+          .get("/in/health", () => ({ none: trace.getActiveSpan() === undefined }));
+      })
+      .get("/out", () => ({ none: trace.getActiveSpan() === undefined }));
+    assert.deepEqual((await app.inject({ url: "/in/tea" })).body, { active: true, stored: true });
+    assert.deepEqual((await app.inject({ url: "/in/health" })).body, { none: true });
+    assert.deepEqual((await app.inject({ url: "/out" })).body, { none: true });
+    assert.equal(trace.getActiveSpan(), undefined, "not active after the request");
+  } finally {
+    context.disable();
+  }
 });

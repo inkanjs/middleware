@@ -63,7 +63,7 @@ export function etag(options = {}) {
         return { status: 304, headers: h, body: undefined };
       });
     },
-    { name: "etag", shared: true, inkan: ">=0.7.0 <0.8.0" },
+    { name: "etag", shared: true, inkan: ">=0.8.0 <1.0.0" },
   );
 }
 

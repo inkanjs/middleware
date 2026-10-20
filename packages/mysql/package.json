@@ -1,0 +1,51 @@
+{
+  "name": "@inkanjs/mysql",
+  "version": "0.1.0",
+  "description": "A MySQL Store for inkan: jobs, rate limits, sessions and idempotency keys shared by every process, on your own mysql2 pool.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/mysql"
+  },
+  "keywords": [
+    "inkan",
+    "store",
+    "mysql",
+    "database",
+    "rate-limit",
+    "session",
+    "jobs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@vxnsin/inkan": "^0.8.0",
+    "mysql-memory-server": "^1.17.0",
+    "mysql2": "^3.24.6"
+  },
+  "scripts": {
+    "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

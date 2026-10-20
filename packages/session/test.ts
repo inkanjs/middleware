@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan } from "@vxnsin/inkan";
-import { memoryStore, session, type SessionStore } from "./index.js";
+import { inkan, memoryStore, type Store } from "@vxnsin/inkan";
+import { memoryStore as deprecatedMemoryStore, session } from "./index.js";
 
 const quiet = { log: false as const };
 const SECRET = "a-secret-for-tests-only-0123456789abcdef";
@@ -132,50 +132,85 @@ test("regenerate gives a new id for the same data", async () => {
   assert.equal(me.body.user, 7);
 });
 
-function spyStore() {
-  const inner = memoryStore();
+const METHODS = ["get", "set", "delete", "add", "take", "increment"];
+
+/**
+ * Any Store, wrapped: only the six methods of the interface are there, every call and every
+ * property read is noted, and the ids it holds are counted.
+ */
+function spyStore(inner: Store = memoryStore()) {
   const calls: string[] = [];
-  const store: SessionStore & { size: number } = {
+  const ttls: (number | undefined)[] = [];
+  const touched = new Set<string | symbol>();
+  const live = new Set<string>();
+  const plain: Store = {
     async get(id) {
       calls.push("get");
       return inner.get(id);
     },
-    async set(id, data, ttl) {
+    async set(id, value, ttl) {
       calls.push("set");
-      inner.set(id, data, ttl);
+      ttls.push(ttl);
+      live.add(id);
+      await inner.set(id, value, ttl);
     },
     async delete(id) {
       calls.push("delete " + id.slice(0, 4));
-      inner.delete(id);
+      live.delete(id);
+      await inner.delete(id);
     },
-    get size() {
-      return inner.size;
+    async add(id, value, ttl) {
+      calls.push("add");
+      return inner.add(id, value, ttl);
+    },
+    async take(id) {
+      calls.push("take");
+      return inner.take(id);
+    },
+    async increment(id, by, ttl) {
+      calls.push("increment");
+      return inner.increment(id, by, ttl);
     },
   };
-  return { store, calls };
+  const store = new Proxy(plain, {
+    get(target, prop, receiver) {
+      touched.add(prop);
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return {
+    store,
+    calls,
+    ttls,
+    touched,
+    get size() {
+      return live.size;
+    },
+  };
 }
 
 test("store: the cookie holds only a signed id, regenerate and destroy forget the old one", async () => {
-  const { store, calls } = spyStore();
+  const spy = spyStore();
+  const { store, calls } = spy;
   const app = shop({ secret: SECRET, store });
   const cart = await send(app, "POST", "/cart");
   const sid = cookieOf(cart)!;
   assert.doesNotMatch(Buffer.from(sid.split(".")[0]!, "base64url").toString(), /sencha/);
-  assert.equal(store.size, 1);
+  assert.equal(spy.size, 1);
   assert.equal((await send(app, "GET", "/me", sid)).body.isNew, false);
 
   const oldId = (await send(app, "GET", "/me", sid)).body.id as string;
   const login = await send(app, "POST", "/login", sid);
   assert.notEqual(login.body.id, oldId);
   assert.ok(calls.includes("delete " + oldId.slice(0, 4)), "the old id is deleted");
-  assert.equal(store.size, 1);
+  assert.equal(spy.size, 1);
   assert.equal((await send(app, "GET", "/me", sid)).body.isNew, true, "the old cookie is worth nothing");
   const fresh = cookieOf(login)!;
   assert.equal((await send(app, "GET", "/me", fresh)).body.user, 7);
 
   const out = await send(app, "POST", "/logout", fresh);
   assert.match(out.cookies[0]!, /^sid=; .*Max-Age=0/);
-  assert.equal(store.size, 0);
+  assert.equal(spy.size, 0);
   assert.equal((await send(app, "GET", "/me", fresh)).body.isNew, true);
 
   calls.length = 0;
@@ -189,12 +224,15 @@ test("store: an entry lasts maxAge, and memoryStore keeps at most max", async (t
   const store = memoryStore({ max: 2 });
   const app = shop({ secret: SECRET, store, cookie: { maxAge: 10 } });
   const a = cookieOf(await send(app, "POST", "/login"))!;
-  t.mock.timers.tick(11_000);
+  const id = Buffer.from(a.split(".")[0]!, "base64url").toString();
+  t.mock.timers.tick(9_000);
+  assert.deepEqual(((await store.get(id)) as { d: object }).d, { user: 7 }, "kept for maxAge, in ms");
+  t.mock.timers.tick(2_000);
+  assert.equal(await store.get(id), undefined, "and gone from the store after it");
   assert.equal((await send(app, "GET", "/me", a)).body.isNew, true, "expired in the store");
 
   const ids = [];
   for (let i = 0; i < 3; i++) ids.push(cookieOf(await send(app, "POST", "/login"))!);
-  assert.equal(store.size, 2);
   assert.equal((await send(app, "GET", "/me", ids[0])).body.isNew, true, "the oldest went first");
   assert.equal((await send(app, "GET", "/me", ids[2])).body.user, 7);
 });
@@ -239,13 +277,31 @@ test("secrets are counted in bytes, and bytes are taken as they are", async () =
   assert.equal((await send(app, "GET", "/me", sid)).body.user, 7);
 });
 
-test("store: the ttl a store gets is in seconds, as in @inkanjs/auth", async () => {
-  const ttls: number[] = [];
-  const inner = memoryStore();
-  const store: SessionStore = { get: (id) => inner.get(id), set: (id, data, ttl) => (ttls.push(ttl), inner.set(id, data, ttl)), delete: (id) => inner.delete(id) };
+test("store: the ttl a store gets is in ms, as every inkan Store takes it", async () => {
+  const { store, ttls } = spyStore();
   const app = shop({ secret: SECRET, store, cookie: { maxAge: 3600 } });
   await send(app, "POST", "/login");
-  assert.deepEqual(ttls, [3600]);
+  assert.deepEqual(ttls, [3_600_000]);
+});
+
+test("store: any Store will do, and only get, set and delete of it are used", async () => {
+  const { store, calls, ttls, touched } = spyStore();
+  const app = shop({ secret: SECRET, store, rolling: true });
+  const sid = cookieOf(await send(app, "POST", "/cart"))!;
+  const login = cookieOf(await send(app, "POST", "/login", sid))!;
+  assert.equal((await send(app, "GET", "/me", login)).body.user, 7);
+  await send(app, "POST", "/logout", login);
+  const flash = flashing({ secret: SECRET, store });
+  const f = cookieOf(await send(flash as never, "POST", "/save"))!;
+  assert.deepEqual((await send(flash as never, "GET", "/all", f)).body.messages, { success: ["Saved.", "Mailed."], warning: ["Low stock."] });
+  assert.deepEqual([...new Set(calls.map((c) => c.split(" ")[0]))].sort(), ["delete", "get", "set"]);
+  assert.deepEqual([...touched].filter((p) => !METHODS.includes(String(p))), [], "nothing but the Store interface");
+  assert.ok(ttls.every((ttl) => ttl === 86_400_000), ttls.join());
+});
+
+test("store: one that is not a Store is refused when the plugin is made; memoryStore is the core's", () => {
+  assert.throws(() => session({ secret: SECRET, store: { get() {} } as never }), /store must be an inkan Store/);
+  assert.equal(deprecatedMemoryStore, memoryStore);
 });
 
 test("maxLifetime: rolling keeps a session alive, but never past its absolute lifetime", async (t) => {
@@ -326,8 +382,7 @@ test("flash: a broken record in the store gives only its strings", async () => {
   const app = flashing({ secret: SECRET, store });
   const sid = cookieOf(await send(app as never, "POST", "/save"))!;
   const id = Buffer.from(sid.split(".")[0]!, "base64url").toString();
-  const rec = store.get(id) as { d: object; c: number; f: unknown };
-  rec.f = { success: ["ok", 1, { x: 1 }], other: "nope", warning: [] };
-  store.set(id, rec as never, 60);
+  const rec = (await store.get(id)) as { d: object; c: number; f: unknown };
+  await store.set(id, { ...rec, f: { success: ["ok", 1, { x: 1 }], other: "nope", warning: [] } }, 60_000);
   assert.deepEqual((await send(app as never, "GET", "/all", sid)).body.messages, { success: ["ok"] });
 });

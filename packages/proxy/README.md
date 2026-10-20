@@ -36,7 +36,7 @@ GET  /status?verbose=1    → GET  http://status:9000/health?verbose=1
 | option | default | |
 | --- | --- | --- |
 | `to` | required | the upstream: `http://host:port`, or with a path every request goes under (`http://legacy:8080/api`) |
-| `prefix` | `/` | for `proxy()`: the path it takes, in the scope it is registered in |
+| `prefix` | `/` | for `proxy()`: the path it takes, in the scope it is registered in (and under a mount: `register(proxy(…), {}, { prefix: "/v1" })`) |
 | `rewrite` | none | `(path) => string`: the path to ask for, from the request's path (for `proxy()`, the part after the prefix) |
 | `forwardCredentials` | `false` | pass the client's `cookie` and `authorization` on (see above) |
 | `headers` | none | headers to set on the upstream request, `null` removes one; or `(ctx) => headers` |

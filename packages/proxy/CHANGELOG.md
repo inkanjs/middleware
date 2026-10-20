@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+- Its routes come from `app.all()` and its mount path from inkan's `joinPath` (inkan 0.8), not
+  from a loop and a copy of its own. `prefix` stays the proxy's own option, never read from
+  `register`; `register(proxy(…), {}, { prefix })` mounts it under that prefix.
+
 ## 0.1.0
 
 - `proxy({ prefix, to })`: every method under a prefix to an upstream; `proxyTo(to)`: one

@@ -1,0 +1,52 @@
+{
+  "name": "@inkanjs/redis",
+  "version": "0.1.0",
+  "description": "A Redis store for inkan: jobs, sessions, auth, idempotency keys and rate limits shared by every process, on the client you already have.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Vensin (https://github.com/vxnsin)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/inkanjs/middleware.git",
+    "directory": "packages/redis"
+  },
+  "keywords": [
+    "inkan",
+    "store",
+    "redis",
+    "ioredis",
+    "session",
+    "rate-limit",
+    "jobs"
+  ],
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "peerDependencies": {
+    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@vxnsin/inkan": "^0.8.0",
+    "ioredis": "^6.0.0",
+    "redis": "^6.3.0",
+    "redis-memory-server": "^0.17.1"
+  },
+  "scripts": {
+    "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

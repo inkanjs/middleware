@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+- **The span is the active one while the handler runs**: an `around` hook (inkan 0.8) runs the
+  route middleware and the handler in `context.with`, so `trace.getActiveSpan()` and
+  instrumented libraries find it. `ctx.traceContext` stays, for hooks and for code that
+  passes the context itself.
+- `network.protocol.version` comes from `ctx.httpVersion`, so `inject()` requests have it too
+  (`1.1`). A request's span is kept in a `stateKey` slot instead of a side table.
+
 ## 0.1.0
 
 - `otel()`: a SERVER span per request, named `METHOD /route/:pattern`, with the HTTP

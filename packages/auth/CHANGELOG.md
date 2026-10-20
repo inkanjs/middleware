@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0
+
+- **Any inkan `Store`** (inkan 0.8) for `store` and `bruteForce.store`: `memoryStore()` from
+  @vxnsin/inkan, or an adapter such as @inkanjs/redis. The plugin's own store interface and
+  `memoryStore` are gone; `memoryStore`, `Store` and `AuthStore` are re-exported from the
+  core, deprecated.
+- **TTLs are in milliseconds**, as `Store` has them (they were seconds). A store of your own
+  that takes seconds keeps keys a thousand times too long: switch it to ms.
+- `add`, `take` and `increment` are required: a store without them is refused when the
+  plugin is made, instead of falling back to a read and a write.
+- Brute-force counters use `increment`, and a counter over its free attempts claims its lock
+  with `add`, so parallel guesses are counted and held back across processes. The count is
+  a fixed window (it starts over `window` after its first attempt), but the **escalation is
+  kept**: next to each counter its level (locks claimed) is stored, every attempt after a
+  lock claims the next one, twice as long up to `maxDelay`, and the level is forgotten only
+  after `window` of quiet past the last lock. A slow guesser stays at one guess per
+  `maxDelay`, as with the old sliding window, instead of getting the free attempts back every
+  `window`.
+- `bruteForce.window` must be at least `bruteForce.maxDelay` (a TypeError otherwise).
+- A successful login no longer gives the address its attempt back: a guesser could log into
+  an account of their own between guesses and never be locked. Successful logins count
+  toward `ipFreeAttempts`; the login's own counters are still cleared by a success.
+- A TOTP code is claimed with `add`: it works once across processes too.
+- Needs inkan `>=0.8.0 <1.0.0`.
+- On the inkan 0.8.0 names, so the plugin prints no deprecation warning: `onOperation`,
+  `decorateRequest(…, { resolve: "preHandler" })`, and `problem(status, type, { detail, headers })`
+  for the answers with headers.
+
 ## 0.1.0
 
 - The user is loaded lazily, with inkan 0.7's `decorateRequest(…, { before: "handler", when })`:

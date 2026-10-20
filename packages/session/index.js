@@ -2,7 +2,7 @@
 //
 //   signed     the data in the cookie, readable by the client, HMAC-SHA256 against changes
 //   encrypted  the data in the cookie, AES-256-GCM: neither readable nor changeable
-//   store      the data on the server, the cookie holds only a random id (signed too)
+//   store      the data in an inkan Store, the cookie holds only a random id (signed too)
 //
 //   app.register(session({ secret: process.env.SESSION_SECRET }))
 //      .post("/login", (ctx) => { ctx.session.regenerate(); ctx.session.set("user", 7); })
@@ -91,32 +91,8 @@ function codec(keys, name, encrypt) {
   };
 }
 
-/** A store in this process's memory: for development and single-process apps. */
-export function memoryStore({ max = 10_000 } = {}) {
-  const map = new Map(); // id → { data, until }; oldest first
-  return {
-    get(id) {
-      const e = map.get(id);
-      if (!e) return undefined;
-      if (e.until <= Date.now()) {
-        map.delete(id);
-        return undefined;
-      }
-      return e.data;
-    },
-    set(id, data, ttl) {
-      map.delete(id); // to the end: the most recently used goes last
-      map.set(id, { data, until: Date.now() + ttl * 1000 }); // ttl in seconds
-      while (map.size > max) map.delete(map.keys().next().value);
-    },
-    delete(id) {
-      map.delete(id);
-    },
-    get size() {
-      return map.size;
-    },
-  };
-}
+/** @deprecated the core's `memoryStore` from @vxnsin/inkan, re-exported for 0.1 code. */
+export { memoryStore } from "@vxnsin/inkan";
 
 /** One request's session. */
 export class Session {
@@ -273,6 +249,9 @@ const dataOf = (d) => Object.assign(Object.create(null), d && typeof d === "obje
 export function session(options) {
   const { secret, encrypt = false, store, rolling = false, maxLifetime } = options ?? {};
   const keys = keysOf(secret);
+  if (store !== undefined && (store === null || typeof store !== "object" || ["get", "set", "delete"].some((m) => typeof store[m] !== "function"))) {
+    throw new TypeError("session: store must be an inkan Store, such as memoryStore() from @vxnsin/inkan (TTLs in ms)");
+  }
   const c = options.cookie ?? {};
   const name = c.name ?? "sid";
   const maxAge = c.maxAge ?? 86_400;
@@ -339,7 +318,7 @@ export function session(options) {
         if (store) {
           if (origin && origin !== s.id) await store.delete(origin); // regenerated: the old id is worth nothing now
           const f = s._flash();
-          await store.set(s.id, f ? { d: s.toJSON(), c: s._created(), f } : { d: s.toJSON(), c: s._created() }, life); // ttl in seconds
+          await store.set(s.id, f ? { d: s.toJSON(), c: s._created(), f } : { d: s.toJSON(), c: s._created() }, life * 1000); // a Store's TTL is in ms
           value = cookie.write(s.id);
         } else {
           value = cookie.write(JSON.stringify({ i: s.id, e: Date.now() + life * 1000, c: s._created(), d: s.toJSON(), f: s._flash() }));
@@ -357,7 +336,7 @@ export function session(options) {
         return fromCookie(ctx.cookies[name]) ?? new Session(Object.create(null), newId(), true);
       });
     },
-    { name: "session", shared: true, inkan: ">=0.7.0 <0.8.0" },
+    { name: "session", shared: true, inkan: ">=0.8.0 <1.0.0" },
   );
 }
 

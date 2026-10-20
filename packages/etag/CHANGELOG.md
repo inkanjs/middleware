@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
+
 ## 0.1.0
 
 - `etag()`: strong or weak (`weak: true`) ETags on 2xx answers to GET and HEAD, hashed

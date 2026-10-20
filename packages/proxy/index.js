@@ -11,7 +11,7 @@
 import http from "node:http";
 import https from "node:https";
 import { Readable, pipeline } from "node:stream";
-import { HttpProblem, plugin, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, joinPath, plugin, reply, t } from "@vxnsin/inkan";
 
 // hop-by-hop: they describe one connection, not the message (RFC 9110 7.6.1)
 const HOP = new Set(["connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer", "trailers", "proxy-connection", "proxy-authenticate", "proxy-authorization"]);
@@ -326,10 +326,10 @@ export function proxyTo(to, opts = {}) {
 export function proxy(opts) {
   const o = options(opts);
   const target = targetOf(o.to);
-  const prefix = "/" + String(o.prefix ?? "").split("/").filter(Boolean).join("/");
+  const prefix = joinPath("/", String(o.prefix ?? ""));
   return plugin(
     (app) => {
-      const mount = "/" + [app.prefix, prefix].join("/").split("/").filter(Boolean).join("/");
+      const mount = joinPath(app.prefix, prefix);
       const handler = (ctx) => {
         let rest = ctx.path.startsWith(mount) ? ctx.path.slice(mount === "/" ? 0 : mount.length) : "/" + ctx.params.path;
         rest = rest.replace(/\/{2,}/g, "/");
@@ -340,9 +340,9 @@ export function proxy(opts) {
       };
       const spec = { body: t.stream(), hidden: o.hidden ?? true, meta: o.meta };
       const at = prefix === "/" ? "/*path" : prefix + "/*path";
-      for (const m of ["get", "post", "put", "patch", "delete"]) app[m](at, spec, handler);
+      app.all(at, spec, handler); // GET, POST, PUT, PATCH and DELETE; HEAD comes with GET
     },
-    { name: "proxy", inkan: ">=0.7.0 <0.8.0" },
+    { name: "proxy", inkan: ">=0.8.0 <1.0.0" },
   );
 }
 

@@ -79,7 +79,7 @@ export function secureHeaders(options = {}) {
     if (h.preload) hsts += "; preload";
   }
   const forceHsts = Boolean(options.hsts && options.hsts.force);
-  const isHttps = options.https ?? ((ctx) => Boolean(ctx.req?.socket?.encrypted));
+  const isHttps = options.https ?? ((ctx) => ctx.secure === true);
 
   // the rest is the same on every answer: worked out once
   const fixed = Object.entries({
@@ -111,7 +111,7 @@ export function secureHeaders(options = {}) {
       });
       return app.decorateRequest("cspNonce", () => randomBytes(16).toString("base64"));
     },
-    { name: "secure-headers", shared: true, inkan: ">=0.7.0 <0.8.0" },
+    { name: "secure-headers", shared: true, inkan: ">=0.8.0 <1.0.0" },
   );
 }
 

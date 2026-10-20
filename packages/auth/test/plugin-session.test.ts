@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { auth, memoryStore } from "../index.js";
+import { memoryStore } from "@vxnsin/inkan";
+import { auth } from "../index.js";
 import { OTHER_SECRET, SECRET, clock, cookieOf, login, makeApp, makeUsers, setCookieOf } from "./app.ts";
+import { countingStore } from "./store.ts";
 
 const withSid = (sid: string | undefined, headers: Record<string, string> = {}) => ({ cookie: `sid=${sid}`, ...headers });
 
@@ -342,9 +344,105 @@ test("brute force: many failures from many addresses lock the login itself", asy
   assert.equal((await tryLogin(app, "ada@example.com", "correct horse", "203.0.113.9")).status, 429);
 });
 
-test("brute force: successful logins do not count against the address", async () => {
-  const { app } = makeApp({ bruteForce: { ipFreeAttempts: 3 } }, makeUsers(), { trustProxy: true });
-  for (let i = 0; i < 8; i++) assert.equal((await tryLogin(app, "bob@example.com", "correct horse", "198.51.100.1")).status, 200, `login ${i + 1}`);
+test("brute force: a successful login does not give the address its attempts back", async () => {
+  // else a guesser would log into an account of their own between guesses and never be locked
+  const start = clock.t;
+  try {
+    const { app } = makeApp({ bruteForce: { ipFreeAttempts: 3 } }, makeUsers(), { trustProxy: true });
+    const ip = "198.51.100.1";
+    assert.equal((await tryLogin(app, "bob@example.com", "correct horse", ip)).status, 200);
+    assert.equal((await tryLogin(app, "ada@example.com", "guess", ip)).status, 401);
+    assert.equal((await tryLogin(app, "bob@example.com", "correct horse", ip)).status, 200);
+    assert.equal((await tryLogin(app, "ada@example.com", "guess", ip)).status, 401, "the attempt that claims the lock still runs");
+    assert.equal((await tryLogin(app, "bob@example.com", "correct horse", ip)).status, 429, "the address is locked, own account or not");
+  } finally {
+    clock.t = start;
+  }
+});
+
+/** One attempt every `every` seconds for `seconds`; how many were let through (not 429). */
+async function slowly(attempt: () => Promise<{ status: number }>, every: number, seconds: number) {
+  let through = 0;
+  for (let t = 0; t < seconds; t += every) {
+    if ((await attempt()).status !== 429) through++;
+    clock.t += every * 1000;
+  }
+  return through;
+}
+
+/** Fails until a lock of `maxDelay` seconds is claimed, waiting out each lock; the clock ends where that lock ends. */
+async function escalate(attempt: () => Promise<{ status: number; headers: Record<string, unknown> }>, maxDelay: number) {
+  for (let i = 0; i < 100; i++) {
+    const res = await attempt();
+    if (res.status === 429) {
+      const wait = Number(res.headers["retry-after"]);
+      clock.t += wait * 1000;
+      if (wait === maxDelay) return;
+    }
+  }
+  assert.fail("never reached maxDelay");
+}
+
+test("brute force: a slow guesser stays at one attempt per maxDelay once escalated, for hours", async () => {
+  const start = clock.t;
+  try {
+    const { app } = makeApp({ bruteForce: { freeAttempts: 5, maxDelay: 900, window: 900 } });
+    const guess = () => app.inject({ method: "POST", url: "/auth/login", body: { login: "ada@example.com", password: "guess" } });
+    await escalate(guess, 900);
+    // one guess every maxDelay/2 for four hours: a fixed window would forget the failures after
+    // each window and give the free attempts back; the escalation does not
+    const through = await slowly(guess, 450, 4 * 3600);
+    assert.ok(through <= 4 * 3600 / 900 + 1, `${through} guesses in four hours`);
+    assert.ok(through >= 4 * 3600 / 900 - 1, `${through} guesses in four hours: one per maxDelay still gets through`);
+  } finally {
+    clock.t = start;
+  }
+});
+
+test("brute force: quiet for `window` after the last lock ends forgets the escalation", async () => {
+  const start = clock.t;
+  try {
+    const { app } = makeApp({ bruteForce: { freeAttempts: 3, maxDelay: 60, window: 600 } });
+    const guess = () => app.inject({ method: "POST", url: "/auth/login", body: { login: "ada@example.com", password: "guess" } });
+    await escalate(guess, 60);
+    assert.equal((await guess()).status, 401, "the lock is over: this one claims the next");
+    let res = await guess();
+    assert.equal(res.headers["retry-after"], "60", "still at maxDelay");
+    clock.t += 59_000;
+    res = await guess();
+    assert.equal(res.status, 429, "a guess within the window keeps the level");
+    clock.t += 1000 + 599_000;
+    assert.equal((await guess()).status, 401, "window minus a second of quiet: this one claims the next lock");
+    res = await guess();
+    assert.equal(res.headers["retry-after"], "60", "at the same level");
+    clock.t += 60_000 + 600_000; // the lock, then the whole window
+    for (let i = 0; i < 4; i++) assert.equal((await guess()).status, 401, `free again: ${i + 1}`);
+    res = await guess();
+    assert.equal(res.status, 429);
+    assert.equal(res.headers["retry-after"], "1", "and the escalation starts over");
+  } finally {
+    clock.t = start;
+  }
+});
+
+test("brute force: the owner's login clears the escalation of the login, not of the address", async () => {
+  const start = clock.t;
+  try {
+    const { app } = makeApp({ bruteForce: { freeAttempts: 3, ipFreeAttempts: 6, maxDelay: 60, window: 600 } }, makeUsers(), { trustProxy: true });
+    const ip = "198.51.100.9";
+    await escalate(() => tryLogin(app, "ada@example.com", "guess", ip), 60);
+    assert.equal((await tryLogin(app, "ada@example.com", "correct horse", "203.0.113.1")).status, 200, "the owner, elsewhere");
+    assert.equal((await tryLogin(app, "ada@example.com", "guess", "203.0.113.1")).status, 401, "and the login's own counter starts over");
+    await tryLogin(app, "bob@example.com", "correct horse", ip); // claims the address's next lock
+    const res = await tryLogin(app, "bob@example.com", "correct horse", ip);
+    assert.equal(res.status, 429, "the address stays escalated: a success does not reset it");
+  } finally {
+    clock.t = start;
+  }
+});
+
+test("brute force: window shorter than maxDelay is refused", () => {
+  assert.throws(() => makeApp({ bruteForce: { maxDelay: 900, window: 600 } }), /window/);
 });
 
 test("brute force: an IPv6 address counts by its /64", async () => {
@@ -355,17 +453,17 @@ test("brute force: an IPv6 address counts by its /64", async () => {
 });
 
 test("brute force: counters live in a store of their own; a locked address writes no more of them", async () => {
-  const store = memoryStore({ max: 20 });
-  const counters = memoryStore();
-  const { app } = makeApp({ store, bruteForce: { ipFreeAttempts: 2, store: counters } }, makeUsers(), { trustProxy: true });
+  const store = countingStore(memoryStore({ max: 20 }));
+  const counters = countingStore();
+  const { app } = makeApp({ store: store.store, bruteForce: { ipFreeAttempts: 2, store: counters.store } }, makeUsers(), { trustProxy: true });
   const { sid } = await login(app);
-  const before = store.size;
+  const before = store.keys.size;
   for (let i = 0; i < 3; i++) await tryLogin(app, `u${i}@example.com`, "x", "198.51.100.1");
-  const size = counters.size;
+  const size = counters.keys.size;
   for (let i = 0; i < 50; i++) assert.equal((await tryLogin(app, `flood${i}@example.com`, "x", "198.51.100.1")).status, 429);
-  assert.equal(counters.size, size, "no per-login record once the address is locked");
+  assert.equal(counters.keys.size, size, "no per-login record once the address is locked");
   for (let i = 0; i < 50; i++) await tryLogin(app, `flood${i}@example.com`, "x", `203.0.113.${i}`);
-  assert.equal(store.size, before, "the session store holds no counters");
+  assert.equal(store.keys.size, before, "the session store holds no counters");
   assert.equal((await app.inject({ url: "/account", headers: withSid(sid) })).status, 200, "the session survived the flood");
 });
 

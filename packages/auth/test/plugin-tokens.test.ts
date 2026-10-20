@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan } from "@vxnsin/inkan";
-import { auth, memoryStore, verifyJwt, type AuthOptions, type AuthStore } from "../index.js";
+import { inkan, memoryStore, type Store } from "@vxnsin/inkan";
+import { auth, verifyJwt, type AuthOptions } from "../index.js";
 import { totp } from "../lib/totp.js";
 import { FAST, SECRET, clock, cookieOf, login, makeApp, makeUsers, type User } from "./app.ts";
 
@@ -134,10 +134,9 @@ test("refresh: two processes sharing a store, the same token at once: only one g
 test("refresh: the family record is written once, at login, not on every rotation", async () => {
   const base = memoryStore();
   const writes: string[] = [];
-  const store: AuthStore = {
-    get: (k) => base.get(k),
+  const store: Store = {
+    ...base,
     set: (k, v, ttl) => (writes.push(k), base.set(k, v, ttl)),
-    delete: (k) => base.delete(k),
     add: (k, v, ttl) => (writes.push(k), base.add(k, v, ttl)),
   };
   const { app } = tokenApp(makeUsers(), { store });
@@ -306,7 +305,7 @@ test("TOTP: the secret waiting for its confirmation is sealed in the store", asy
   let seen = 0;
   for (const user of [1, 2, 3]) {
     const { createHash } = await import("node:crypto");
-    const v = store.get("p:" + createHash("sha256").update(String(user)).digest("base64url"));
+    const v = await store.get("p:" + createHash("sha256").update(String(user)).digest("base64url"));
     if (v === undefined) continue;
     seen++;
     assert.equal(typeof v, "string");
