@@ -38,7 +38,7 @@
     "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "file:../../../inkan-release-0.8",
+    "@vxnsin/inkan": "^0.8.0",
     "mongodb": "^7.7.0",
     "mongodb-memory-server-core": "^11.3.0"
   },

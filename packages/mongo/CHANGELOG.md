@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `mongoStore(dbOrCollection, { collection, events, prefix, create, changeStreams, poll })`:
   an inkan `Store` on your own `mongodb` client, passing `storeConformance`.

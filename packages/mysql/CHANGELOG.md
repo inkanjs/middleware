@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `mysqlStore(pool, { table, events, prefix, create, sweep, poll })`: an inkan `Store` on
   your own `mysql2/promise` pool, passing `storeConformance`.

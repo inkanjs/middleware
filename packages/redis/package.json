@@ -38,7 +38,7 @@
     "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "file:../../../inkan-release-0.8",
+    "@vxnsin/inkan": "^0.8.0",
     "ioredis": "^6.0.0",
     "redis": "^6.3.0",
     "redis-memory-server": "^0.17.1"

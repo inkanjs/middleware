@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0
 
 - **Any inkan `Store`** (inkan 0.8) for `store` and `bruteForce.store`: `memoryStore()` from
   @vxnsin/inkan, or an adapter such as @inkanjs/redis. The plugin's own store interface and

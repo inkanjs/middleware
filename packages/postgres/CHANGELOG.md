@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `postgresStore(db, { table, schema, prefix, create, sweep, listener })`: an inkan `Store`
   (0.8) in one PostgreSQL table, on the app's own `pg` Pool or Client, or postgres.js. No

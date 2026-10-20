@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.2.0
 
 - Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
 - **The span is the active one while the handler runs**: an `around` hook (inkan 0.8) runs the

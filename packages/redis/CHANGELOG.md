@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
 - `redisStore(client, { prefix, subscriber })`: an inkan `Store` (0.8) in Redis, on the
   app's own node-redis (v4+) or ioredis client. No dependencies of its own.

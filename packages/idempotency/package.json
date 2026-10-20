@@ -37,7 +37,7 @@
     "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "file:../../../inkan-release-0.8"
+    "@vxnsin/inkan": "^0.8.0"
   },
   "scripts": {
     "test": "node --import ../../scripts/no-deprecations.js --test test.ts"

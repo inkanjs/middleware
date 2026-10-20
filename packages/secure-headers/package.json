@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/secure-headers",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Security headers for inkan: a strict Content-Security-Policy with per-request nonces, HSTS and the rest, each one yours to change.",
   "type": "module",
   "license": "MIT",
@@ -38,7 +38,7 @@
     "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "file:../../../inkan-release-0.8"
+    "@vxnsin/inkan": "^0.8.0"
   },
   "scripts": {
     "test": "node --import ../../scripts/no-deprecations.js --test test.ts"

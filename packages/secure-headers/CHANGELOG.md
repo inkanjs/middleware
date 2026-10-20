@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.2.0
 
 - Works with inkan 0.8 (`inkan: ">=0.8.0 <1.0.0"`).
 - HSTS goes by `ctx.secure` by default instead of the socket's `encrypted` flag, so it is sent

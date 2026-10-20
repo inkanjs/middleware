@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/etag",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ETags and 304 answers for inkan: hashed from exactly the bytes that go out, before compression.",
   "type": "module",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "@vxnsin/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "file:../../../inkan-release-0.8"
+    "@vxnsin/inkan": "^0.8.0"
   },
   "scripts": {
     "test": "node --import ../../scripts/no-deprecations.js --test test.ts"
