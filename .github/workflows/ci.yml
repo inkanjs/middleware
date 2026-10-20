@@ -12,6 +12,10 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    # redis-memory-server would build Redis from source on install, which breaks on new macOS
+    # SDKs; the stores job below runs the stores against real servers instead
+    env:
+      REDISMS_DISABLE_POSTINSTALL: "1"
     strategy:
       fail-fast: false
       matrix:

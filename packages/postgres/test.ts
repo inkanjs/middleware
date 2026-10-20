@@ -35,7 +35,7 @@ async function server(): Promise<{ url: string; stop(): Promise<unknown> } | str
     await db.start();
     return { url: `postgres://postgres:postgres@127.0.0.1:${port}/postgres`, stop: () => db.stop() };
   } catch (err) {
-    return `no PostgreSQL to test against: set DATABASE_URL, or install embedded-postgres for this platform (${(err as Error).message})`;
+    return `no PostgreSQL to test against: set DATABASE_URL, or install embedded-postgres for this platform (${(err instanceof Error ? err.message : String(err))})`;
   }
 }
 

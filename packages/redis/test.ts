@@ -17,7 +17,7 @@ async function server(): Promise<{ url: string; stop(): Promise<unknown> } | str
     const s = await RedisMemoryServer.create();
     return { url: `redis://${await s.getHost()}:${await s.getPort()}`, stop: () => s.stop() };
   } catch (err) {
-    return `no Redis to test against: set REDIS_URL, or let redis-memory-server download one (${(err as Error).message})`;
+    return `no Redis to test against: set REDIS_URL, or let redis-memory-server download one (${(err instanceof Error ? err.message : String(err))})`;
   }
 }
 

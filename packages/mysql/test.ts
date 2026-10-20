@@ -29,7 +29,7 @@ if (!url && process.env.CI) {
     stop = () => db.stop();
     url = `mysql://${db.username}@127.0.0.1:${db.port}/${db.dbName}`;
   } catch (err) {
-    skip = `no MySQL: set MYSQL_URL or let mysql-memory-server download MySQL (${(err as Error).message})`;
+    skip = `no MySQL: set MYSQL_URL or let mysql-memory-server download MySQL (${(err instanceof Error ? err.message : String(err))})`;
   }
 }
 

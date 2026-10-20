@@ -38,7 +38,7 @@ if (process.env.MONGO_URL) {
     stops.push(() => set.stop());
     servers.push({ name: "replica set, change streams", uri: set.getUri(), options: {}, streams: true });
   } catch (err) {
-    skip = `no MongoDB: set MONGO_URL or let mongodb-memory-server-core download mongod (${(err as Error).message})`;
+    skip = `no MongoDB: set MONGO_URL or let mongodb-memory-server-core download mongod (${(err instanceof Error ? err.message : String(err))})`;
   }
 }
 
