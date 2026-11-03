@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+- The generated routes mark the statuses no example can show as `untested`, with the reason
+  (inkan 0.9's experimental `RouteSpec.untested`): 403, 429 and 503 on `POST /auth/login`,
+  403 on `POST /auth/logout`, 429 and 503 on `POST /auth/token`, and 403, 409 and 429 on the
+  TOTP routes. An app with the plugin passes `inkan check --strict` without an
+  `export const untested` of its own. Older cores ignore the field.
+
 ## 0.2.0
 
 - **Any inkan `Store`** (inkan 0.8) for `store` and `bruteForce.store`: `memoryStore()` from
