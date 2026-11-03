@@ -105,3 +105,24 @@ test("inkan check with an example account: logs in, then /me and /logout with th
   assert.ok(failed.includes("POST /auth/login > a known login"), failed.join(", "));
   assert.throws(() => auth<User>({ secret: SECRET, users: makeUsers().source, example: { login: "x" } as never }), /example needs/);
 });
+
+// RouteSpec.untested came with inkan 0.9; an older core ignores it, and its report has no
+// `untested`. This test needs the 0.9 core and is skipped on 0.8.
+test("inkan check --strict: the app of `inkan create app --auth` passes without an untested list", async (t) => {
+  for (const prefix of ["", "/api"]) {
+    const users = makeUsers();
+    const plugin = auth<User>({
+      secret: SECRET,
+      users: { find: users.source.find, byId: users.source.byId },
+      password: FAST,
+      example: { login: "bob@example.com", password: "correct horse" },
+    });
+    const app = inkan({ log: false }).register(plugin, {}, { prefix });
+    const report = await app.check({ strict: true });
+    if (!("untested" in report)) return t.skip("needs inkan 0.9 (RouteSpec.untested)");
+    assert.ok(report.ok, JSON.stringify({ failed: report.results.filter((r) => !r.ok), uncovered: report.uncovered }));
+    assert.deepEqual(report.uncovered, []);
+    const onPurpose = (report as { untested: { method: string; path: string; status: number }[] }).untested.map((u) => `${u.method} ${u.path} ${u.status}`);
+    assert.deepEqual(onPurpose.sort(), [`POST ${prefix}/auth/login 403`, `POST ${prefix}/auth/login 429`, `POST ${prefix}/auth/login 503`, `POST ${prefix}/auth/logout 403`]);
+  }
+});

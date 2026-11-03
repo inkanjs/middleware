@@ -901,6 +901,11 @@ function install(app, c) {
     const userSchemes = [...(session ? [c.sessionScheme] : []), ...(c.jwt ? ["bearer"] : [])];
     const unknownLogin = { name: "an unknown login", body: { login: "nobody@example.com", password: "not-the-password" }, status: 401, expect: { type: "invalid-credentials" } };
     const noCredentials = { name: "without credentials", status: 401, expect: { type: "unauthorized" } };
+    // Statuses no example can show, with the reason: `inkan check --strict` lets them be
+    // (RouteSpec.untested, inkan 0.9, experimental). Older cores ignore the field.
+    const lockout = "a lockout after many failed logins";
+    const tooBusy = "too many password checks at once";
+    const reauth = "a login older than totp.reauth, or a wrong password";
     // With an example account, inkan check logs in and goes on with the session cookie in its jar.
     const loggedIn = "a known login";
     const afterLogin = session && c.example && fn(users.find) ? `POST ${app.prefix}${base}/login > ${loggedIn}` : undefined;
@@ -921,6 +926,7 @@ function install(app, c) {
           response: { 200: t.object({ user: c.userSchema }), 401: P, 403: P, 429: P, 503: P },
           meta: { [SETS_SESSION]: true },
           examples: loginExamples,
+          untested: { 403: "a login from another site", 429: lockout, 503: tooBusy },
         },
         async (ctx) => {
           const user = await passwordLogin(ctx, ctx.body);
@@ -940,6 +946,7 @@ function install(app, c) {
           body: t.object({ refreshToken: t.string().max(512).optional() }).optional(),
           response: { 204: t.empty(), 403: P },
           examples: [{ name: "without a session", status: 204 }, ...afterLoginExample(204, { "sec-fetch-site": "same-origin" })],
+          untested: { 403: "a logout from another site" },
         },
         async (ctx) => {
           if (ctx.body?.refreshToken && c.issue) await revokeRefresh(ctx.body.refreshToken);
@@ -973,6 +980,7 @@ function install(app, c) {
           body: loginBody,
           response: { 200: tokens, 401: P, 429: P, 503: P },
           examples: [unknownLogin],
+          untested: { 429: lockout, 503: tooBusy },
         },
         async (ctx) => issueTokens(await passwordLogin(ctx, ctx.body)),
       );
@@ -1007,6 +1015,7 @@ function install(app, c) {
           body: t.object({ password: password.optional() }).optional(),
           response: { 200: t.object({ secret: t.string(), otpauthUrl: t.string() }), 401: P, 403: P, 409: P, 429: P },
           examples: [noCredentials],
+          untested: { 403: reauth, 409: "an account with TOTP on already", 429: lockout },
         },
         async (ctx) => {
           const user = stateOf(ctx).user;
@@ -1029,6 +1038,7 @@ function install(app, c) {
           body: t.object({ code: t.string().min(6).max(10), password: password.optional() }),
           response: { 200: t.object({ recoveryCodes: t.array(t.string()) }), 400: P, 401: P, 403: P, 409: P, 429: P },
           examples: [{ ...noCredentials, body: { code: "123456" } }],
+          untested: { 403: reauth, 409: "TOTP on already, or no setup going on", 429: lockout },
         },
         async (ctx) => {
           const user = stateOf(ctx).user;
@@ -1056,6 +1066,7 @@ function install(app, c) {
           body: t.object({ code: t.string().min(6).max(32), password: password.optional() }),
           response: { 204: t.empty(), 400: P, 401: P, 403: P, 409: P, 429: P },
           examples: [{ ...noCredentials, body: { code: "123456" } }],
+          untested: { 403: reauth, 409: "an account without TOTP", 429: lockout },
         },
         async (ctx) => {
           const user = stateOf(ctx).user;

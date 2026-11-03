@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/auth",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Authentication for inkan without dependencies: sessions, JWTs, API keys, passwords, TOTP and OAuth on node:crypto alone.",
   "type": "module",
   "license": "MIT",
