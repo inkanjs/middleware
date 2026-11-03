@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1 (unreleased)
+## 0.2.1
 
 - The generated routes mark the statuses no example can show as `untested`, with the reason
   (inkan 0.9's experimental `RouteSpec.untested`): 403, 429 and 503 on `POST /auth/login`,
