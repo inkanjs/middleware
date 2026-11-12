@@ -6,11 +6,11 @@ of an app sees the same state. It runs on the Redis client you already have, `re
 (node-redis v4 or later) or `ioredis`, and has no dependencies of its own.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/redis redis   # or ioredis
+npm install @inkanjs/inkan @inkanjs/redis redis   # or ioredis
 ```
 
 ```ts
-import { inkan, rateLimit } from "@vxnsin/inkan";
+import { inkan, rateLimit } from "@inkanjs/inkan";
 import { createClient } from "redis";
 import { redisStore } from "@inkanjs/redis";
 
@@ -78,7 +78,7 @@ other object is refused.
   the TTL of one that was: a rate-limit window stays fixed.
 - Values are JSON: `get` returns what `JSON.stringify` made of the value, `undefined` for a
   missing key, `null` only for a stored `null`.
-- The suite from `@vxnsin/inkan/testing` (`storeConformance`) passes on both clients.
+- The suite from `@inkanjs/inkan/testing` (`storeConformance`) passes on both clients.
 
 ## Security
 

@@ -1,4 +1,4 @@
-import type { Context, memoryStore as coreMemoryStore, Plugin, Store } from "@vxnsin/inkan";
+import type { Context, memoryStore as coreMemoryStore, Plugin, Store } from "@inkanjs/inkan";
 
 /** What is kept under a key: a marker while the first request runs, then its answer. Plain JSON. */
 export type IdempotencyRecord =
@@ -14,14 +14,14 @@ export type IdempotencyRecord =
       binary: boolean;
     };
 
-/** @deprecated Use `Store` from "@vxnsin/inkan". */
+/** @deprecated Use `Store` from "@inkanjs/inkan". */
 export type IdempotencyStore = Store;
 
 export type IdempotencyOptions = {
   /**
    * Where answers are kept, an `IdempotencyRecord` per key: any inkan `Store` (Redis, a
    * database, …); its atomic `add` keeps two processes from both running a key. Default
-   * `memoryStore()` from @vxnsin/inkan: one process only.
+   * `memoryStore()` from @inkanjs/inkan: one process only.
    */
   store?: Store;
   /** Default `["POST", "PATCH"]`. */
@@ -56,5 +56,5 @@ export type IdempotencyOptions = {
 export declare function idempotency(options?: IdempotencyOptions): Plugin<{}, {}, {}>;
 export default idempotency;
 
-/** @deprecated Use `memoryStore` from "@vxnsin/inkan": this is the same function, re-exported. */
+/** @deprecated Use `memoryStore` from "@inkanjs/inkan": this is the same function, re-exported. */
 export declare const memoryStore: typeof coreMemoryStore;

@@ -1,4 +1,4 @@
-import type { Store } from "@vxnsin/inkan";
+import type { Store } from "@inkanjs/inkan";
 
 /** A `pg` Pool or Client (or anything with the same `query`). A Pool is told apart by `totalCount`. */
 export interface PgQueryable {

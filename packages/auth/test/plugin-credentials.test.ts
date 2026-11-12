@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, createHmac, generateKeyPairSync } from "node:crypto";
-import { inkan } from "@vxnsin/inkan";
+import { inkan } from "@inkanjs/inkan";
 import { auth, signJwt } from "../index.js";
 import { SECRET, clock, makeUsers, type User } from "./app.ts";
 import { json, serve } from "./server.ts";

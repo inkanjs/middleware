@@ -1,5 +1,5 @@
 // What the plugin tests share: a few users, a clock to move, and a cookie jar for inject.
-import { inkan, type InjectResponse } from "@vxnsin/inkan";
+import { inkan, type InjectResponse } from "@inkanjs/inkan";
 import { auth, hashPassword, type AuthOptions } from "../index.js";
 
 export const SECRET = "test-secret-that-is-long-enough-0123456789";

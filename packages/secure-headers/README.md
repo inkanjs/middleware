@@ -6,11 +6,11 @@ HSTS over HTTPS, and the rest. Every header can be changed or left out, and a he
 handler set itself is never overwritten.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/secure-headers
+npm install @inkanjs/inkan @inkanjs/secure-headers
 ```
 
 ```ts
-import { html, inkan } from "@vxnsin/inkan";
+import { html, inkan } from "@inkanjs/inkan";
 import { secureHeaders } from "@inkanjs/secure-headers";
 
 const app = inkan()

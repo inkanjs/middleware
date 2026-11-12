@@ -7,7 +7,7 @@
 // for a scheme this plugin cannot verify is refused, never waved through.
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
-import { HttpProblem, memoryStore, plugin, problem, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, memoryStore, plugin, problem, reply, t } from "@inkanjs/inkan";
 import { AuthError } from "./errors.js";
 import { isObject, secureUrl } from "./http.js";
 import { jwksSource, signJwt, verifyJwt } from "./jwt.js";

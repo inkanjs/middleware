@@ -5,11 +5,11 @@ already has an answer gets an empty 304 instead of the same body again. The tag 
 of exactly the bytes that are sent, worked out before compression.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/etag
+npm install @inkanjs/inkan @inkanjs/etag
 ```
 
 ```ts
-import { compress, inkan } from "@vxnsin/inkan";
+import { compress, inkan } from "@inkanjs/inkan";
 import { etag } from "@inkanjs/etag";
 
 const app = inkan()

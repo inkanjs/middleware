@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { html, inkan, problem, reply } from "@vxnsin/inkan";
+import { html, inkan, problem, reply } from "@inkanjs/inkan";
 import { DEFAULT_CSP, secureHeaders } from "./index.js";
 
 const quiet = { log: false as const };

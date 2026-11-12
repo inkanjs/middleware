@@ -1,9 +1,9 @@
-import type { memoryStore as coreMemoryStore, Plugin, Store } from "@vxnsin/inkan";
+import type { memoryStore as coreMemoryStore, Plugin, Store } from "@inkanjs/inkan";
 
 /** What a store keeps per session: the data, when the session began (ms), and flash messages not read yet. Plain JSON. */
 export type SessionRecord = { d: Record<string, unknown>; c: number; f?: Record<string, string[]> };
 
-/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+/** @deprecated Use `Store` from "@inkanjs/inkan"; TTLs are in milliseconds since 0.2. */
 export type SessionStore = Store;
 
 export type SessionCookie = {
@@ -32,7 +32,7 @@ export type SessionOptions = {
   /** AES-256-GCM instead of a signature: the client cannot read the data either. Default false. Ignored with a store. */
   encrypt?: boolean;
   /**
-   * Keep the data in this inkan `Store` (`memoryStore()` from @vxnsin/inkan, Redis, a
+   * Keep the data in this inkan `Store` (`memoryStore()` from @inkanjs/inkan, Redis, a
    * database, …) and only a random id in the cookie. A `SessionRecord` per session, for
    * `maxAge` (in ms, as every Store takes it).
    */
@@ -88,5 +88,5 @@ export declare function session<Data extends Record<string, unknown> = Record<st
 ): Plugin<{}, {}, { session: Session<Data> }>;
 export default session;
 
-/** @deprecated Use `memoryStore` from "@vxnsin/inkan": this is the same function, re-exported. */
+/** @deprecated Use `memoryStore` from "@inkanjs/inkan": this is the same function, re-exported. */
 export declare const memoryStore: typeof coreMemoryStore;

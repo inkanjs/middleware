@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { inspect } from "node:util";
 import mysql from "mysql2/promise";
-import { storeConformance } from "@vxnsin/inkan/testing";
+import { storeConformance } from "@inkanjs/inkan/testing";
 import { mysqlStore, storedKey, type MysqlStore } from "./index.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

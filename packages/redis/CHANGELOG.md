@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Works with `@inkanjs/inkan`, the new name of the core (it was `@vxnsin/inkan`). Install
+  `@inkanjs/inkan` 0.9.2 or later next to it.
+
 ## 0.1.0
 
 - `redisStore(client, { prefix, subscriber })`: an inkan `Store` (0.8) in Redis, on the

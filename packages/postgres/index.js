@@ -1,4 +1,4 @@
-// A `Store` (from @vxnsin/inkan) in one PostgreSQL table, on a pool the app already has:
+// A `Store` (from @inkanjs/inkan) in one PostgreSQL table, on a pool the app already has:
 // `pg` (a Pool or a Client) or `postgres` (porsager's postgres.js). No dependencies.
 //
 //   create table "inkan_store" (key text primary key, value text not null, expires_at timestamptz)

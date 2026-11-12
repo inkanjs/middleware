@@ -1,5 +1,5 @@
 import type { Agent } from "node:http";
-import type { Context, Plugin, Reply, RouteMeta } from "@vxnsin/inkan";
+import type { Context, Plugin, Reply, RouteMeta } from "@inkanjs/inkan";
 
 type Ctx = Context<any, any, any, any, any>;
 

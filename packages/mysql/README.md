@@ -5,12 +5,12 @@ limits, sessions, logins and idempotency keys kept where every process of your a
 them. You pass your own `mysql2/promise` pool; the package has no dependencies.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/mysql mysql2
+npm install @inkanjs/inkan @inkanjs/mysql mysql2
 ```
 
 ```ts
 import mysql from "mysql2/promise";
-import { inkan, rateLimit } from "@vxnsin/inkan";
+import { inkan, rateLimit } from "@inkanjs/inkan";
 import { mysqlStore } from "@inkanjs/mysql";
 
 const pool = mysql.createPool(process.env.MYSQL_URL!);

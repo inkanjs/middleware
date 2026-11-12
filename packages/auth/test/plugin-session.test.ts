@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { memoryStore } from "@vxnsin/inkan";
+import { memoryStore } from "@inkanjs/inkan";
 import { auth } from "../index.js";
 import { OTHER_SECRET, SECRET, clock, cookieOf, login, makeApp, makeUsers, setCookieOf } from "./app.ts";
 import { countingStore } from "./store.ts";
@@ -88,7 +88,7 @@ test("meta.auth.optional on a route without security still sees the user of a se
 });
 
 test("a public route still refuses a cross-site POST that carries our session cookie", async () => {
-  const { inkan } = await import("@vxnsin/inkan");
+  const { inkan } = await import("@inkanjs/inkan");
   const users = makeUsers();
   const plugin = auth({ secret: SECRET, users: users.source, password: { ln: 14 } });
   const app = inkan({ log: false })
@@ -196,7 +196,7 @@ test("secret rotation: a cookie signed with the old secret still works, one with
 test("ctx.auth.login and logout for flows of your own", async () => {
   const users = makeUsers();
   const plugin = auth({ secret: SECRET, users: users.source, routes: false });
-  const { inkan } = await import("@vxnsin/inkan");
+  const { inkan } = await import("@inkanjs/inkan");
   const app = inkan({ log: false })
     .register(plugin)
     .post("/signup", async (ctx) => {
@@ -258,7 +258,7 @@ test("CSRF: configured origins are let through", async () => {
 });
 
 test("CSRF: a bearer POST is not cookie-based and never checked", async () => {
-  const { inkan } = await import("@vxnsin/inkan");
+  const { inkan } = await import("@inkanjs/inkan");
   const users = makeUsers();
   const plugin = auth({ secret: SECRET, users: users.source, jwt: { issue: true }, password: { ln: 14 } });
   const app = inkan({ log: false })
@@ -493,7 +493,7 @@ test("options are checked when the plugin is made", () => {
 });
 
 test("a preHandler hook sees the user itself, not a promise, on a route that needs one", async () => {
-  const { inkan } = await import("@vxnsin/inkan");
+  const { inkan } = await import("@inkanjs/inkan");
   const users = makeUsers();
   const plugin = auth({ secret: SECRET, users: users.source, password: { ln: 14 } });
   const seen: unknown[] = [];

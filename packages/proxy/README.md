@@ -5,11 +5,11 @@ of the app, or one route, handed on to a server behind it. Request and response 
 stream through as they come, so a 2 GB upload or download never sits in memory.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/proxy
+npm install @inkanjs/inkan @inkanjs/proxy
 ```
 
 ```ts
-import { inkan, t } from "@vxnsin/inkan";
+import { inkan, t } from "@inkanjs/inkan";
 import { proxy, proxyTo } from "@inkanjs/proxy";
 
 const app = inkan()

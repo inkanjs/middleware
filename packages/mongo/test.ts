@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { inspect } from "node:util";
 import { MongoClient } from "mongodb";
-import { storeConformance } from "@vxnsin/inkan/testing";
+import { storeConformance } from "@inkanjs/inkan/testing";
 import { mongoStore, type MongoStore, type MongoStoreOptions } from "./index.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));

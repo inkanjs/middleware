@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HttpProblem, inkan, reply } from "@vxnsin/inkan";
+import { HttpProblem, inkan, reply } from "@inkanjs/inkan";
 import { breaker, circuit, Circuit, CircuitOpenError, type CircuitState } from "./index.js";
 
 const quiet = { log: false as const, onError: () => {} };

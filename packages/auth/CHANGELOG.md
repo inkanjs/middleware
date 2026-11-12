@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Works with `@inkanjs/inkan`, the new name of the core (it was `@vxnsin/inkan`). Install
+  `@inkanjs/inkan` 0.9.2 or later next to it.
+
 ## 0.2.1
 
 - The generated routes mark the statuses no example can show as `untested`, with the reason

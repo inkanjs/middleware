@@ -11,7 +11,7 @@
 import http from "node:http";
 import https from "node:https";
 import { Readable, pipeline } from "node:stream";
-import { HttpProblem, joinPath, plugin, reply, t } from "@vxnsin/inkan";
+import { HttpProblem, joinPath, plugin, reply, t } from "@inkanjs/inkan";
 
 // hop-by-hop: they describe one connection, not the message (RFC 9110 7.6.1)
 const HOP = new Set(["connection", "keep-alive", "transfer-encoding", "upgrade", "te", "trailer", "trailers", "proxy-connection", "proxy-authenticate", "proxy-authorization"]);

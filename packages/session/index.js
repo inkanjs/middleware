@@ -11,7 +11,7 @@
 // nothing, and an answer whose session did not change sets no cookie.
 
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
-import { plugin, serializeCookie } from "@vxnsin/inkan";
+import { plugin, serializeCookie } from "@inkanjs/inkan";
 
 const MIN_SECRET = 32;
 const MAX_COOKIE = 4096; // what every browser keeps of name=value, at the least
@@ -91,8 +91,8 @@ function codec(keys, name, encrypt) {
   };
 }
 
-/** @deprecated the core's `memoryStore` from @vxnsin/inkan, re-exported for 0.1 code. */
-export { memoryStore } from "@vxnsin/inkan";
+/** @deprecated the core's `memoryStore` from @inkanjs/inkan, re-exported for 0.1 code. */
+export { memoryStore } from "@inkanjs/inkan";
 
 /** One request's session. */
 export class Session {
@@ -250,7 +250,7 @@ export function session(options) {
   const { secret, encrypt = false, store, rolling = false, maxLifetime } = options ?? {};
   const keys = keysOf(secret);
   if (store !== undefined && (store === null || typeof store !== "object" || ["get", "set", "delete"].some((m) => typeof store[m] !== "function"))) {
-    throw new TypeError("session: store must be an inkan Store, such as memoryStore() from @vxnsin/inkan (TTLs in ms)");
+    throw new TypeError("session: store must be an inkan Store, such as memoryStore() from @inkanjs/inkan (TTLs in ms)");
   }
   const c = options.cookie ?? {};
   const name = c.name ?? "sid";

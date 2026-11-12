@@ -1,4 +1,4 @@
-// A `Store` (from @vxnsin/inkan) in Redis, on a client the app already has: node-redis (v4 and
+// A `Store` (from @inkanjs/inkan) in Redis, on a client the app already has: node-redis (v4 and
 // later) or ioredis. Nothing to install besides the client the user picked.
 //
 //   set        SET key json [PX ttl]              (without PX the TTL is cleared)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Works with `@inkanjs/inkan`, the new name of the core (it was `@vxnsin/inkan`). Install
+  `@inkanjs/inkan` 0.9.2 or later next to it.
+
 ## 0.2.0
 
 - **Any inkan `Store`** (inkan 0.8) for `store`: `memoryStore()` from @vxnsin/inkan, or an

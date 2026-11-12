@@ -1,4 +1,4 @@
-import type { Context, memoryStore as coreMemoryStore, Plugin, ProblemBody, Schema, Security, Store as CoreStore } from "@vxnsin/inkan";
+import type { Context, memoryStore as coreMemoryStore, Plugin, ProblemBody, Schema, Security, Store as CoreStore } from "@inkanjs/inkan";
 import type { AsymmetricKey, Duration, JwksOptions, JwtAlgorithm, JwtPayload, Secret } from "./lib/jwt.js";
 import type { OAuthTokens, OAuthUser, Provider } from "./lib/oauth.js";
 import type { ScryptParams } from "./lib/password.js";
@@ -12,7 +12,7 @@ export { randomToken, hashToken, safeEqual } from "./lib/tokens.js";
 export { github, google, oidcProvider } from "./lib/oauth.js";
 export type { OAuth2Provider, OAuthTokens, OAuthUser, OidcProvider, Provider } from "./lib/oauth.js";
 
-declare module "@vxnsin/inkan" {
+declare module "@inkanjs/inkan" {
   interface RouteMeta {
     /**
      * What @inkanjs/auth asks of the caller. `roles`: at least one of them (403 otherwise).
@@ -54,11 +54,11 @@ export interface UserSource<U> {
   updatePasswordHash?(id: any, hash: string): Awaitable<unknown>;
 }
 
-/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+/** @deprecated Use `Store` from "@inkanjs/inkan"; TTLs are in milliseconds since 0.2. */
 export type Store = CoreStore;
-/** @deprecated Use `Store` from "@vxnsin/inkan"; TTLs are in milliseconds since 0.2. */
+/** @deprecated Use `Store` from "@inkanjs/inkan"; TTLs are in milliseconds since 0.2. */
 export type AuthStore = CoreStore;
-/** @deprecated Use `memoryStore` from "@vxnsin/inkan": this is the same function, re-exported. */
+/** @deprecated Use `memoryStore` from "@inkanjs/inkan": this is the same function, re-exported. */
 export declare const memoryStore: typeof coreMemoryStore;
 
 export interface SessionOptions {

@@ -8,7 +8,7 @@
 // open       calls fail at once (CircuitOpenError, or a 503 problem) for `cooldown` ms
 // half-open  one call goes through as a probe: success closes it, failure opens it again
 
-import { plugin, problem } from "@vxnsin/inkan";
+import { plugin, problem } from "@inkanjs/inkan";
 
 /** 5xx answers and thrown errors. */
 const defaultIsFailure = (status, err) => err !== undefined || (typeof status === "number" && status >= 500);

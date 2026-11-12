@@ -1,4 +1,4 @@
-import type { Context, Plugin } from "@vxnsin/inkan";
+import type { Context, Plugin } from "@inkanjs/inkan";
 
 export type CircuitState = "closed" | "open" | "half-open";
 
