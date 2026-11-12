@@ -26,7 +26,7 @@ import {
   type Tracer,
   type TracerProvider,
 } from "@opentelemetry/api";
-import { HttpProblem, inkan, t as s } from "@vxnsin/inkan";
+import { HttpProblem, inkan, t as s } from "@inkanjs/inkan";
 import { otel, spanOf } from "./index.js";
 
 // ---------- a tracer that keeps its spans in memory: no SDK needed ----------

@@ -1,4 +1,4 @@
-import type { Store } from "@vxnsin/inkan";
+import type { Store } from "@inkanjs/inkan";
 
 /** The parts of a `Db` of the official `mongodb` driver this store uses. */
 export type MongoDbLike = {

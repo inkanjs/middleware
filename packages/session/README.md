@@ -6,11 +6,11 @@ while the cookie holds only a random id. `ctx.session` is typed, made only for a
 that reads it, and written back only when it changed.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/session
+npm install @inkanjs/inkan @inkanjs/session
 ```
 
 ```ts
-import { inkan, t } from "@vxnsin/inkan";
+import { inkan, t } from "@inkanjs/inkan";
 import { session } from "@inkanjs/session";
 
 type Data = { userId: number; cart: string[] };
@@ -44,13 +44,13 @@ in it. A cookie session lasts until it expires even after `destroy()` if someone
 copy; when you need logout to end a session for certain, use a store.
 
 ```ts
-import { memoryStore } from "@vxnsin/inkan";
+import { memoryStore } from "@inkanjs/inkan";
 import { session } from "@inkanjs/session";
 
 app.register(session({ secret, store: memoryStore({ max: 50_000 }) }));
 ```
 
-The store is an inkan `Store`. `memoryStore` from @vxnsin/inkan lives in the process: right
+The store is an inkan `Store`. `memoryStore` from @inkanjs/inkan lives in the process: right
 for development and one process. For more, any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8):
 
 ```ts

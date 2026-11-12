@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/redis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Redis store for inkan: jobs, sessions, auth, idempotency keys and rate limits shared by every process, on the client you already have.",
   "type": "module",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+    "@inkanjs/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "^0.8.0",
+    "@inkanjs/inkan": "^0.9.2",
     "ioredis": "^6.0.0",
     "redis": "^6.3.0",
     "redis-memory-server": "^0.17.1"

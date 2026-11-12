@@ -1,5 +1,5 @@
 // What the plugin keeps between requests (sessions, refresh tokens, login counters, the last
-// TOTP step) lives in an inkan `Store`: `memoryStore()` from @vxnsin/inkan by default, or any
+// TOTP step) lives in an inkan `Store`: `memoryStore()` from @inkanjs/inkan by default, or any
 // adapter (Redis, a database) whose add, take and increment are atomic across processes.
 // What is left here is the lock for the few steps that read and then write within one process.
 

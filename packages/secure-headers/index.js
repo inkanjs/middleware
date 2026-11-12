@@ -11,7 +11,7 @@
 // runs, so they are never touched: their inline script and style keep working.
 
 import { randomBytes } from "node:crypto";
-import { plugin } from "@vxnsin/inkan";
+import { plugin } from "@inkanjs/inkan";
 
 /** The policy every answer gets unless told otherwise: only this origin, no plugins, no framing. */
 export const DEFAULT_CSP = Object.freeze({

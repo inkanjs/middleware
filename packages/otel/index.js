@@ -8,7 +8,7 @@
 // is up to the SDK the app sets up. Without one every call here is a no-op.
 
 import { context, propagation, ROOT_CONTEXT, SpanKind, SpanStatusCode, trace, INVALID_SPAN_CONTEXT } from "@opentelemetry/api";
-import { plugin, stateKey } from "@vxnsin/inkan";
+import { plugin, stateKey } from "@inkanjs/inkan";
 
 const NAME = "@inkanjs/otel";
 const VERSION = "0.1.0";

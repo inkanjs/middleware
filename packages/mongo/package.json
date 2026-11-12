@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/mongo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A MongoDB Store for inkan: jobs, rate limits, sessions and idempotency keys shared by every process, on your own mongodb client.",
   "type": "module",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+    "@inkanjs/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "^0.8.0",
+    "@inkanjs/inkan": "^0.9.2",
     "mongodb": "^7.7.0",
     "mongodb-memory-server-core": "^11.3.0"
   },

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, memoryStore, type Store } from "@vxnsin/inkan";
+import { inkan, memoryStore, type Store } from "@inkanjs/inkan";
 import { auth, memoryStore as deprecatedMemoryStore, type AuthOptions } from "../index.js";
 import { totp } from "../lib/totp.js";
 import { FAST, SECRET, clock, cookieOf, makeUsers, type User } from "./app.ts";

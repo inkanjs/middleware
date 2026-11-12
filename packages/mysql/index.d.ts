@@ -1,4 +1,4 @@
-import type { Store } from "@vxnsin/inkan";
+import type { Store } from "@inkanjs/inkan";
 
 /** A connection from the pool, as `mysql2/promise` gives it. */
 export type MysqlConnectionLike = {

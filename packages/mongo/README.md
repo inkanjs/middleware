@@ -5,12 +5,12 @@ limits, sessions, logins and idempotency keys kept where every process of your a
 them. You pass your own `mongodb` client; the package has no dependencies.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/mongo mongodb
+npm install @inkanjs/inkan @inkanjs/mongo mongodb
 ```
 
 ```ts
 import { MongoClient } from "mongodb";
-import { inkan, rateLimit } from "@vxnsin/inkan";
+import { inkan, rateLimit } from "@inkanjs/inkan";
 import { mongoStore } from "@inkanjs/mongo";
 
 const client = await new MongoClient(process.env.MONGO_URL!).connect();

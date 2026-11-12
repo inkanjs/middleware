@@ -9,10 +9,10 @@
 // the same key for another request (another method, path, query or body) a 422.
 
 import { createHash } from "node:crypto";
-import { HttpProblem, memoryStore, plugin, problem, reply, stateKey, t } from "@vxnsin/inkan";
+import { HttpProblem, memoryStore, plugin, problem, reply, stateKey, t } from "@inkanjs/inkan";
 
-/** @deprecated the core's `memoryStore` from @vxnsin/inkan, re-exported for 0.1 code. */
-export { memoryStore } from "@vxnsin/inkan";
+/** @deprecated the core's `memoryStore` from @inkanjs/inkan, re-exported for 0.1 code. */
+export { memoryStore } from "@inkanjs/inkan";
 
 const STORE_METHODS = ["get", "set", "delete", "add"];
 

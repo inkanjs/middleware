@@ -5,11 +5,11 @@ again, because the answer got lost on the way, gets the first answer again inste
 second order or a second payment. As Stripe and the IETF draft do it.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/idempotency
+npm install @inkanjs/inkan @inkanjs/idempotency
 ```
 
 ```ts
-import { inkan, t } from "@vxnsin/inkan";
+import { inkan, t } from "@inkanjs/inkan";
 import { idempotency } from "@inkanjs/idempotency";
 
 const app = inkan()
@@ -71,7 +71,7 @@ POST /payments  idempotency-key: 5f0c…  {"amount":99}   → 422 idempotency-ke
 
 ## Store
 
-Answers are kept in an inkan `Store`, by default `memoryStore()` from @vxnsin/inkan: one
+Answers are kept in an inkan `Store`, by default `memoryStore()` from @inkanjs/inkan: one
 process, at most `max` keys (default 10000), the least recently used dropped first. For
 several processes any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8):
 

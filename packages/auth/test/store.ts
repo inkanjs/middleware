@@ -1,6 +1,6 @@
 // A Store that counts what is asked of it: only the six methods of the interface are there,
 // and every property the plugin reads is noted, so a test can show it uses nothing else.
-import { memoryStore, type Store } from "@vxnsin/inkan";
+import { memoryStore, type Store } from "@inkanjs/inkan";
 
 export const METHODS = ["get", "set", "delete", "add", "take", "increment"] as const;
 

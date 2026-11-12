@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { compress, inkan, reply, t } from "@vxnsin/inkan";
+import { compress, inkan, reply, t } from "@inkanjs/inkan";
 import { etag, etagOf, noneMatch } from "./index.js";
 
 const quiet = { log: false as const };

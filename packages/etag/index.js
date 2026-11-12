@@ -9,7 +9,7 @@
 // whatever encoding the client takes.
 
 import { createHash } from "node:crypto";
-import { plugin } from "@vxnsin/inkan";
+import { plugin } from "@inkanjs/inkan";
 
 const TAG = /(W\/)?"([^"]*)"/g;
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, t } from "@vxnsin/inkan";
+import { inkan, t } from "@inkanjs/inkan";
 import { auth, github } from "../index.js";
 import { FAST, SECRET, makeUsers, type User } from "./app.ts";
 

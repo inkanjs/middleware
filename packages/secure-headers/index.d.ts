@@ -1,4 +1,4 @@
-import type { Context, Plugin } from "@vxnsin/inkan";
+import type { Context, Plugin } from "@inkanjs/inkan";
 
 /** A CSP directive's sources: `["'self'", "https://cdn.example.com"]`, one string, `true` for one without sources, or `false` to drop it. */
 export type CspValue = string | string[] | boolean | null;

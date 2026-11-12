@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, memoryStore, type Store } from "@vxnsin/inkan";
+import { inkan, memoryStore, type Store } from "@inkanjs/inkan";
 import { memoryStore as deprecatedMemoryStore, session } from "./index.js";
 
 const quiet = { log: false as const };

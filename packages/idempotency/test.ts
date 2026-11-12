@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan, memoryStore, plugin, problem, reply, t, type Store } from "@vxnsin/inkan";
+import { inkan, memoryStore, plugin, problem, reply, t, type Store } from "@inkanjs/inkan";
 import { idempotency, memoryStore as deprecatedMemoryStore, type IdempotencyOptions } from "./index.js";
 
 const quiet = { log: false as const };

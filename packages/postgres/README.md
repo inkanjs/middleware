@@ -7,11 +7,11 @@ have, `pg` (a Pool or a Client) or `postgres` (postgres.js), and has no dependen
 own.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/postgres pg   # or postgres
+npm install @inkanjs/inkan @inkanjs/postgres pg   # or postgres
 ```
 
 ```ts
-import { inkan, rateLimit } from "@vxnsin/inkan";
+import { inkan, rateLimit } from "@inkanjs/inkan";
 import pg from "pg";
 import { postgresStore } from "@inkanjs/postgres";
 
@@ -102,7 +102,7 @@ The driver is told apart by its methods: postgres.js has `unsafe` and `listen`, 
 - `increment` counts in `numeric`: `0.1 + 0.2` is `0.3`. On a live key whose value is not a
   JSON number (a string, even `"5"`, a boolean, `null`, an object) it rejects with a
   `TypeError` and leaves the value as it was, as the other stores do.
-- The suite from `@vxnsin/inkan/testing` (`storeConformance`) passes on a pg Pool, a pg
+- The suite from `@inkanjs/inkan/testing` (`storeConformance`) passes on a pg Pool, a pg
   Client and postgres.js.
 
 ## Security

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { inspect } from "node:util";
 import pg from "pg";
 import postgres from "postgres";
-import { storeConformance } from "@vxnsin/inkan/testing";
+import { storeConformance } from "@inkanjs/inkan/testing";
 import { postgresStore, storedKey, type PostgresStore } from "./index.js";
 
 // The server: DATABASE_URL when set (CI runs a postgres:17 service), else embedded-postgres,

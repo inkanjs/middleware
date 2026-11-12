@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net, { type AddressInfo } from "node:net";
 import { once } from "node:events";
-import { inkan, t as s } from "@vxnsin/inkan";
+import { inkan, t as s } from "@inkanjs/inkan";
 import { proxy, proxyTo } from "./index.js";
 
 const quiet = { log: false as const, onError: () => {} };

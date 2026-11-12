@@ -1,7 +1,7 @@
 // Types: `npx tsc` checks this file; node runs it as an ordinary test.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inkan } from "@vxnsin/inkan";
+import { inkan } from "@inkanjs/inkan";
 import { auth, type AuthContext } from "../index.js";
 import { SECRET } from "./app.ts";
 
@@ -53,7 +53,7 @@ test("an explicit generic, and meta.auth is typed", () => {
 });
 
 test("the plugin's routes reach the typed client: POST /auth/login, under a prefix too", async () => {
-  const { client } = await import("@vxnsin/inkan/client");
+  const { client } = await import("@inkanjs/inkan/client");
   const plugin = auth({ secret: SECRET, users: { find: async (login: string) => db.get(login), byId: async (id: string) => db.get(id) } });
   const app = inkan({ log: false }).register(plugin);
   const api = client<typeof app>("http://localhost:1");

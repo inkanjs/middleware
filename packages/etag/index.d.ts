@@ -1,4 +1,4 @@
-import type { Plugin } from "@vxnsin/inkan";
+import type { Plugin } from "@inkanjs/inkan";
 
 export type EtagOptions = {
   /** `W/"…"` instead of a strong tag. Default false. */

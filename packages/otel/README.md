@@ -10,11 +10,11 @@ else: no SDK, no exporter. Which SDK turns the spans into traces is up to your a
 one, every call is a no-op.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/otel @opentelemetry/api
+npm install @inkanjs/inkan @inkanjs/otel @opentelemetry/api
 ```
 
 ```ts
-import { inkan } from "@vxnsin/inkan";
+import { inkan } from "@inkanjs/inkan";
 import { otel } from "@inkanjs/otel";
 
 const app = inkan()

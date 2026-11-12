@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/mysql",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A MySQL Store for inkan: jobs, rate limits, sessions and idempotency keys shared by every process, on your own mysql2 pool.",
   "type": "module",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+    "@inkanjs/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "^0.8.0",
+    "@inkanjs/inkan": "^0.9.2",
     "mysql-memory-server": "^1.17.0",
     "mysql2": "^3.24.6"
   },

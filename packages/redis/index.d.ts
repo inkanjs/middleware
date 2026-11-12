@@ -1,4 +1,4 @@
-import type { Store } from "@vxnsin/inkan";
+import type { Store } from "@inkanjs/inkan";
 
 /** A connected client from `redis` (node-redis v4 or later): `createClient(...)` after `connect()`. */
 export interface NodeRedisClient {

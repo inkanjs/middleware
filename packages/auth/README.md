@@ -14,7 +14,7 @@ Node 22.18 or newer, inkan 0.8 (`register()` refuses other versions). MIT licens
 ## Quick start
 
 ```js
-import { inkan, t } from "@vxnsin/inkan";
+import { inkan, t } from "@inkanjs/inkan";
 import { auth } from "@inkanjs/auth";
 
 const login = auth({
@@ -296,8 +296,8 @@ typed their address. Without `emailVerified`, make a new account or refuse.
 
 Sessions, refresh tokens and TOTP steps live in `store`; the brute-force counters in
 `bruteForce.store`, a second one. Both are inkan `Store`s, by default `memoryStore()` from
-@vxnsin/inkan: in memory, per process. Any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8), or one you
-write against the interface (`storeConformance` from `@vxnsin/inkan/testing` checks it):
+@inkanjs/inkan: in memory, per process. Any `Store` works, such as @inkanjs/redis, @inkanjs/mongo, @inkanjs/mysql and @inkanjs/postgres (coming with inkan 0.8), or one you
+write against the interface (`storeConformance` from `@inkanjs/inkan/testing` checks it):
 
 ```js
 import { redisStore } from "@inkanjs/redis";

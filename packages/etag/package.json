@@ -1,6 +1,6 @@
 {
   "name": "@inkanjs/etag",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ETags and 304 answers for inkan: hashed from exactly the bytes that go out, before compression.",
   "type": "module",
   "license": "MIT",
@@ -34,10 +34,10 @@
     "node": ">=22.18"
   },
   "peerDependencies": {
-    "@vxnsin/inkan": ">=0.8.0 <1.0.0"
+    "@inkanjs/inkan": ">=0.8.0 <1.0.0"
   },
   "devDependencies": {
-    "@vxnsin/inkan": "^0.8.0"
+    "@inkanjs/inkan": "^0.9.2"
   },
   "scripts": {
     "test": "node --import ../../scripts/no-deprecations.js --test test.ts"

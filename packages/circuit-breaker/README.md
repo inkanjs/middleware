@@ -6,7 +6,7 @@ queue of retries, and your callers get an answer at once instead of waiting for 
 timeout.
 
 ```sh
-npm install @vxnsin/inkan @inkanjs/circuit-breaker
+npm install @inkanjs/inkan @inkanjs/circuit-breaker
 ```
 
 ```
@@ -21,7 +21,7 @@ The common case: a service you call that sometimes falls over. Wrap the call onc
 use the wrapped function as before.
 
 ```ts
-import { inkan, problem } from "@vxnsin/inkan";
+import { inkan, problem } from "@inkanjs/inkan";
 import { circuit, CircuitOpenError } from "@inkanjs/circuit-breaker";
 
 const rates = circuit((currency: string) => fetch(`https://rates.example/${currency}`, { signal: AbortSignal.timeout(2000) }), {

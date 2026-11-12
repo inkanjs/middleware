@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { inspect } from "node:util";
 import { createClient } from "redis";
 import { Redis } from "ioredis";
-import { storeConformance } from "@vxnsin/inkan/testing";
+import { storeConformance } from "@inkanjs/inkan/testing";
 import { redisStore, type RedisClient, type RedisStore } from "./index.js";
 
 // The server: REDIS_URL when set (CI runs a redis:7 service), else one redis-memory-server

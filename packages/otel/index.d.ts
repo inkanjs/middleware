@@ -1,5 +1,5 @@
 import type { Attributes, Context as OtelContext, Span, Tracer } from "@opentelemetry/api";
-import type { Context, Plugin } from "@vxnsin/inkan";
+import type { Context, Plugin } from "@inkanjs/inkan";
 
 type Ctx = Context<any, any, any, any, any>;
 
